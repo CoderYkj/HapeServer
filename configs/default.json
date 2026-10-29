@@ -1,0 +1,21 @@
+{
+  "runtime": {
+    "kind": "goakt"
+  },
+  "world": {
+    "id": 1,
+    "region": "dev",
+    "shards": 12
+  },
+  "storage": {
+    "snapshotDir": "./data/snapshots",
+    "walDir": "./data/wal"
+  },
+  "trade": {
+    "timeoutSeconds": 600,
+    "maxDaily": 20
+  },
+  "reset": {
+    "sweepHours": 24
+  }
+}
