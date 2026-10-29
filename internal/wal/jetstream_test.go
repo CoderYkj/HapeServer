@@ -1,0 +1,61 @@
+package wal
+
+import (
+	"fmt"
+	"os"
+	"testing"
+	"time"
+)
+
+// TestJetStreamRoundTrip requires a running NATS server with JetStream.
+// Set NATS_URL (e.g. nats://127.0.0.1:4222) to run it; otherwise it skips so
+// the default unit-test run stays hermetic.
+func TestJetStreamRoundTrip(t *testing.T) {
+	url := os.Getenv("NATS_URL")
+	if url == "" {
+		t.Skip("NATS_URL not set")
+	}
+	suffix := time.Now().UnixNano()
+	stream := fmt.Sprintf("WAL_TEST_%d", suffix)
+	subject := fmt.Sprintf("wal.test.%d", suffix)
+
+	w, err := OpenJetStream(JetStreamConfig{URL: url, Stream: stream, Subject: subject})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	for _, s := range []string{"a", "b", "c"} {
+		if _, err := w.Append([]byte(s)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := w.LastOffset(); got != 3 {
+		t.Fatalf("last offset = %d, want 3", got)
+	}
+
+	var records []string
+	if err := w.Replay(func(_ uint64, r []byte) error {
+		records = append(records, string(r))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 || records[0] != "a" || records[2] != "c" {
+		t.Fatalf("records = %v", records)
+	}
+
+	if err := w.Truncate(2); err != nil {
+		t.Fatal(err)
+	}
+	records = nil
+	if err := w.Replay(func(_ uint64, r []byte) error {
+		records = append(records, string(r))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0] != "b" {
+		t.Fatalf("after truncate = %v", records)
+	}
+}

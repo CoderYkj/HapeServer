@@ -29,6 +29,13 @@
 
 `go test -race` 与 `docker compose` 尚未在本机执行。
 
+## P0 进度
+
+| 任务 | 状态 | 证据 |
+|---|---|---|
+| F02 跳表 | 完成 | PT-01：2 万次随机操作对比排序数组 0 差异；RankOf ~0.9µs |
+| C02 JetStream WAL | 完成 | 本地 NATS 2.15.2 集成通过（Append / Replay / Truncate） |
+
 ## 目录
 
 ```

@@ -63,3 +63,14 @@ cd D:\HapeServer
 go build ./...
 go test ./...
 ```
+## 增量验证（2026-10-30）
+
+### F02 跳表
+
+- `go test ./internal/rank -run TestAgainstSortedModel`：20,000 次随机 add/remove/rank/top-k，与排序数组模型 0 差异。
+- 基准（i7-4980HQ，10 万条）：`Add` 约 1.78µs/op，`RankOf` 约 0.88µs/op。
+
+### C02 JetStream WAL
+
+- 本地 `nats-server 2.15.2`，JetStream 文件存储。
+- `NATS_URL=... go test ./internal/wal -run TestJetStreamRoundTrip` 通过：Append 3 条、Replay 顺序正确、Truncate(2) 后仅剩 b/c。
