@@ -621,3 +621,25 @@ PASS
 {"season":2,"reset":2,"rewarded":2,"skipped":0}
 {"gold":6000,"wood":1000,"food":1000,"power":0}
 ```
+## 增量验证：历史分页 / 奖励配置 / 对账告警（2026-10-30）
+
+### 战斗历史分页
+
+- 游标改为 `(createdAt, _id)` 复合键：`before`、`beforeId`。
+- Memory 与 Mongo 都按 `createdAt desc, _id desc` 稳定排序；Mongo 查询用 `$or` 处理同一毫秒的边界。
+- 返回 `{items, nextCreatedAt, nextId}`；只有取满 limit 时才给下一页游标。
+- `TestHistoryPagination`：3 场战斗分两页（2+1），无重复/遗漏。
+
+### 赛季奖励配置
+
+- `config.Season.Rewards`：`{minRank, maxRank, gold}`，`maxRank=0` 表示无上限。
+- `world.RewardTier` + `SetRewards`；`cmd/world` 启动时从配置注入，未配置则用默认表。
+- `configs/default.json` 已带默认表。
+- `TestRewardForRank` 覆盖自定义区间与无上限区间。
+
+### 对账告警
+
+- `world.Service.SetAlertHook`：一次对账出现失败时回调完整错误列表。
+- 新增 `reconcile_alerts_total`，每次有失败的对账轮次 +1；`reconcile_last_error_count` 保留最近一轮失败数。
+- `cmd/world` 注册 hook，输出 `ALERT reconcile failures=N first=...`。
+- 说明：告警是进程内 hook，P1 接 Prometheus Alertmanager/日志采集。

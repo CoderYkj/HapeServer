@@ -48,7 +48,7 @@ func Resolve(attacker, defender uint64, ap, dp int64) uint64 {
 type Store interface {
 	Create(ctx context.Context, b *Battle) error
 	Get(ctx context.Context, id string) (*Battle, error)
-	ListByPlayer(ctx context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error)
+	ListByPlayer(ctx context.Context, playerID uint64, season uint32, before int64, beforeID string, limit int64) ([]Battle, error)
 }
 
 // Memory is an in-memory store for P0.
@@ -127,13 +127,31 @@ func (s *Service) Get(ctx context.Context, id string) (*Battle, error) {
 	return s.store.Get(ctx, id)
 }
 
-// History returns a player's battle history, newest first.
-func (s *Service) History(ctx context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error) {
-	return s.store.ListByPlayer(ctx, playerID, season, limit)
+// Page is one page of battle history.
+type Page struct {
+	Items         []Battle `json:"items"`
+	NextCreatedAt int64    `json:"nextCreatedAt,omitempty"`
+	NextID        string   `json:"nextId,omitempty"`
+}
+
+// History returns a player's battle history, newest first, using
+// (createdAt, id) as a compound cursor.
+func (s *Service) History(ctx context.Context, playerID uint64, season uint32, before int64, beforeID string, limit int64) (*Page, error) {
+	items, err := s.store.ListByPlayer(ctx, playerID, season, before, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	page := &Page{Items: items}
+	if int64(len(items)) == limit && len(items) > 0 {
+		last := items[len(items)-1]
+		page.NextCreatedAt = last.CreatedAt
+		page.NextID = last.ID
+	}
+	return page, nil
 }
 
 // ListByPlayer returns a player's battles, newest first.
-func (s *Memory) ListByPlayer(_ context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error) {
+func (s *Memory) ListByPlayer(_ context.Context, playerID uint64, season uint32, before int64, beforeID string, limit int64) ([]Battle, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -147,9 +165,19 @@ func (s *Memory) ListByPlayer(_ context.Context, playerID uint64, season uint32,
 		if season != 0 && b.Season != season {
 			continue
 		}
+		if before > 0 {
+			if b.CreatedAt > before || (beforeID != "" && b.CreatedAt == before && b.ID >= beforeID) {
+				continue
+			}
+		}
 		out = append(out, *b)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt > out[j].CreatedAt
+		}
+		return out[i].ID > out[j].ID
+	})
 	if int64(len(out)) > limit {
 		out = out[:limit]
 	}

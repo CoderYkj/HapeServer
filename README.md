@@ -65,6 +65,9 @@
 | 战斗历史 | 完成 | attle_history 按玩家/赛季返回，最新优先 |
 | 对账错误明细 | 完成 | /api/reconcile/errors，保留最近 20 条 |
 | 赛季奖励 | 完成 | 重置前按排名发金，返回 ewarded |
+| 战斗历史分页 | 完成 | (createdAt,_id) 复合游标 |
+| 赛季奖励配置 | 完成 | season.rewards 模板，支持自定义区间 |
+| 对账告警 | 完成 | econcile_alerts_total + 日志 hook |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |

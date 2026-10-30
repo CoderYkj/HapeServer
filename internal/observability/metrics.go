@@ -17,6 +17,7 @@ type Metrics struct {
 	ReconcileRuns    atomic.Uint64
 	ReconcileTouched atomic.Uint64
 	ReconcileErrors  atomic.Uint64
+	ReconcileAlerts  atomic.Uint64
 
 	mu     sync.RWMutex
 	gauges map[string]int64
@@ -48,5 +49,6 @@ func (m *Metrics) Snapshot() map[string]int64 {
 	out["reconcile_runs_total"] = int64(m.ReconcileRuns.Load())
 	out["reconcile_touched_total"] = int64(m.ReconcileTouched.Load())
 	out["reconcile_errors_total"] = int64(m.ReconcileErrors.Load())
+	out["reconcile_alerts_total"] = int64(m.ReconcileAlerts.Load())
 	return out
 }

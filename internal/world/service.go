@@ -18,6 +18,13 @@ import (
 
 // Record is one durable player-side effect. It is appended to the WAL before
 // the effect is applied, so a replay reproduces the same state.
+// RewardTier pays Gold for a final rank range (Max=0 means unbounded).
+type RewardTier struct {
+	MinRank int
+	MaxRank int
+	Gold    int64
+}
+
 type Record struct {
 	PlayerID uint64 `json:"playerId"`
 	Op       string `json:"op"`
@@ -45,6 +52,8 @@ type Service struct {
 	metrics *observability.Metrics
 
 	reconcileErrs []string
+	rewards       []RewardTier
+	alertHook     func([]string)
 }
 
 // NewService wires the P0 subsystems together.
@@ -62,6 +71,7 @@ func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
 		rank:    rank.NewWorldRankActor(nil),
 		battles: battle.NewService(nil),
 		metrics: observability.New(),
+		rewards: DefaultRewards(),
 	}
 	s.trade = trade.NewService(store, &escrowAdapter{svc: s})
 	return s
@@ -69,6 +79,9 @@ func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
 
 // Rank exposes the leaderboard for read-only queries.
 func (s *Service) Rank() *rank.WorldRankActor { return s.rank }
+
+// SetAlertHook installs a callback for reconciliation failures.
+func (s *Service) SetAlertHook(h func([]string)) { s.alertHook = h }
 
 // SetMetrics swaps the process metrics sink.
 func (s *Service) SetMetrics(m *observability.Metrics) {
@@ -176,21 +189,39 @@ func (s *Service) SweepSeason(ctx context.Context, season uint32) (int, int) {
 	return reset, skipped
 }
 
-// seasonReward is the gold paid for a final rank.
-func seasonReward(rank int) int64 {
-	switch {
-	case rank == 1:
-		return 5000
-	case rank <= 10:
-		return 2000
-	case rank <= 100:
-		return 1000
-	case rank <= 1000:
-		return 500
-	default:
-		return 100
+// DefaultRewards mirrors the P0 season table.
+func DefaultRewards() []RewardTier {
+	return []RewardTier{
+		{MinRank: 1, MaxRank: 1, Gold: 5000},
+		{MinRank: 2, MaxRank: 10, Gold: 2000},
+		{MinRank: 11, MaxRank: 100, Gold: 1000},
+		{MinRank: 101, MaxRank: 1000, Gold: 500},
+		{MinRank: 1001, MaxRank: 0, Gold: 100},
 	}
 }
+
+// SetRewards replaces the season reward table.
+func (s *Service) SetRewards(tiers []RewardTier) {
+	if len(tiers) > 0 {
+		s.rewards = tiers
+	}
+}
+
+// seasonReward is the default gold paid for a final rank.
+func seasonReward(rank int) int64 {
+	return rewardForRank(DefaultRewards(), rank)
+}
+
+func rewardForRank(tiers []RewardTier, rank int) int64 {
+	for _, t := range tiers {
+		if rank >= t.MinRank && (t.MaxRank == 0 || rank <= t.MaxRank) {
+			return t.Gold
+		}
+	}
+	return 0
+}
+
+func (s *Service) rewardForRank(rank int) int64 { return rewardForRank(s.rewards, rank) }
 
 // SettleSeason resets stale players and pays rank rewards for the finished
 // season. It must be called before the new season's players are admitted.
@@ -201,7 +232,7 @@ func (s *Service) SettleSeason(ctx context.Context, season uint32) (reset, rewar
 		if tops[i].Power <= 0 {
 			continue
 		}
-		rewards[tops[i].PID] = seasonReward(i + 1)
+		rewards[tops[i].PID] = s.rewardForRank(i + 1)
 	}
 
 	s.SetSeason(season)
@@ -382,6 +413,8 @@ type Request struct {
 	Season     uint32 `json:"season"`
 	DefPower   int64  `json:"defPower"`
 	BattleID   string `json:"battleId"`
+	Before     int64  `json:"before"`
+	BeforeID   string `json:"beforeId"`
 }
 
 // Handle dispatches one API action.
@@ -440,7 +473,7 @@ func (s *Service) handle(ctx context.Context, req Request) (any, error) {
 		if limit <= 0 {
 			limit = 20
 		}
-		return s.battles.History(ctx, req.PlayerID, req.Season, limit)
+		return s.battles.History(ctx, req.PlayerID, req.Season, req.Before, req.BeforeID, limit)
 	case "season_reset":
 		season := req.Season
 		if season == 0 {
@@ -578,6 +611,10 @@ func (s *Service) Reconcile(ctx context.Context, limit int64) (int, error) {
 			s.reconcileErrs = s.reconcileErrs[len(s.reconcileErrs)-20:]
 		}
 		s.mu.Unlock()
+		s.metrics.ReconcileAlerts.Add(1)
+		if s.alertHook != nil {
+			s.alertHook(append([]string(nil), res.Errors...))
+		}
 	}
 	return res.Touched, nil
 }

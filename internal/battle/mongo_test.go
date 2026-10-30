@@ -44,7 +44,7 @@ func TestMongoBattlePersists(t *testing.T) {
 	if got.Winner != 10 || got.AttackerPower != 900 || got.State != Settled {
 		t.Fatalf("battle = %+v", got)
 	}
-	hist, err := store2.ListByPlayer(ctx, 10, 1, 10)
+	hist, err := store2.ListByPlayer(ctx, 10, 1, 0, "", 10)
 	if err != nil || len(hist) != 1 || hist[0].ID != b.ID {
 		t.Fatalf("history=%+v err=%v", hist, err)
 	}

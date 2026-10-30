@@ -13,6 +13,7 @@ type Config struct {
 	Storage Storage `json:"storage"`
 	Trade   Trade   `json:"trade"`
 	Reset   Reset   `json:"reset"`
+	Season  Season  `json:"season"`
 }
 
 type Runtime struct {
@@ -44,6 +45,16 @@ type Trade struct {
 
 type Reset struct {
 	SweepHours int `json:"sweepHours"`
+}
+
+type RewardTier struct {
+	MinRank int   `json:"minRank"`
+	MaxRank int   `json:"maxRank"` // 0 = unbounded
+	Gold    int64 `json:"gold"`
+}
+
+type Season struct {
+	Rewards []RewardTier `json:"rewards"`
 }
 
 // Defaults mirrors appendix D of the architecture document.

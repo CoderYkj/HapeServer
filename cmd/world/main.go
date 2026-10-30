@@ -85,7 +85,17 @@ func main() {
 	}
 
 	svc := world.NewService(sys, tradeStore, walLog)
+	svc.SetAlertHook(func(errs []string) {
+		log.Printf("ALERT reconcile failures=%d first=%s", len(errs), errs[0])
+	})
 	svc.SetSeason(cfg.World.Season)
+	if len(cfg.Season.Rewards) > 0 {
+		tiers := make([]world.RewardTier, 0, len(cfg.Season.Rewards))
+		for _, r := range cfg.Season.Rewards {
+			tiers = append(tiers, world.RewardTier{MinRank: r.MinRank, MaxRank: r.MaxRank, Gold: r.Gold})
+		}
+		svc.SetRewards(tiers)
+	}
 	if cfg.Storage.MongoURL != "" {
 		bs, err := battle.OpenMongo(ctx, cfg.Storage.MongoURL, cfg.Storage.MongoDB)
 		if err != nil {

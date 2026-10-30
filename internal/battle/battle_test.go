@@ -40,12 +40,30 @@ func TestHistory(t *testing.T) {
 	if _, err := svc.Submit(context.Background(), 1, 2, 10, 20, 100, 50); err != nil {
 		t.Fatal(err)
 	}
-	all, err := svc.History(context.Background(), 10, 0, 10)
-	if err != nil || len(all) != 2 {
-		t.Fatalf("all=%d err=%v", len(all), err)
+	allPage, err := svc.History(context.Background(), 10, 0, 0, "", 10)
+	if err != nil || len(allPage.Items) != 2 {
+		t.Fatalf("all=%d err=%v", len(allPage.Items), err)
 	}
-	season1, err := svc.History(context.Background(), 10, 1, 10)
-	if err != nil || len(season1) != 1 || season1[0].Season != 1 {
-		t.Fatalf("season1=%+v err=%v", season1, err)
+	season1Page, err := svc.History(context.Background(), 10, 1, 0, "", 10)
+	if err != nil || len(season1Page.Items) != 1 || season1Page.Items[0].Season != 1 {
+		t.Fatalf("season1=%+v err=%v", season1Page.Items, err)
+	}
+}
+
+func TestHistoryPagination(t *testing.T) {
+	svc := NewService(nil)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		if _, err := svc.Submit(ctx, 1, 1, 10, 20, 100, 50); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page1, err := svc.History(ctx, 10, 1, 0, "", 2)
+	if err != nil || len(page1.Items) != 2 || page1.NextID == "" {
+		t.Fatalf("page1=%+v err=%v", page1, err)
+	}
+	page2, err := svc.History(ctx, 10, 1, page1.NextCreatedAt, page1.NextID, 2)
+	if err != nil || len(page2.Items) != 1 {
+		t.Fatalf("page2=%+v err=%v", page2, err)
 	}
 }

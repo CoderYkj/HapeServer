@@ -75,17 +75,28 @@ func (s *MongoStore) Get(ctx context.Context, id string) (*Battle, error) {
 	return &b, nil
 }
 
-// ListByPlayer returns a player's battles, newest first.
-func (s *MongoStore) ListByPlayer(ctx context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error) {
+// ListByPlayer returns a player's battles, newest first, with a compound
+// (createdAt, id) cursor.
+func (s *MongoStore) ListByPlayer(ctx context.Context, playerID uint64, season uint32, before int64, beforeID string, limit int64) ([]Battle, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	filter := bson.M{"$or": []bson.M{{"attacker": playerID}, {"defender": playerID}}}
+	and := []bson.M{{"$or": []bson.M{{"attacker": playerID}, {"defender": playerID}}}}
 	if season != 0 {
-		filter["season"] = season
+		and = append(and, bson.M{"season": season})
 	}
-	cur, err := s.coll.Find(ctx, filter, options.Find().
-		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+	if before > 0 {
+		cond := bson.M{"createdAt": bson.M{"$lt": before}}
+		if beforeID != "" {
+			cond = bson.M{"$or": []bson.M{
+				{"createdAt": bson.M{"$lt": before}},
+				{"createdAt": before, "_id": bson.M{"$lt": beforeID}},
+			}}
+		}
+		and = append(and, cond)
+	}
+	cur, err := s.coll.Find(ctx, bson.M{"$and": and}, options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: -1}, {Key: "_id", Value: -1}}).
 		SetLimit(limit))
 	if err != nil {
 		return nil, err

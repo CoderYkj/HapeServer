@@ -41,3 +41,13 @@ func TestSeasonReward(t *testing.T) {
 		}
 	}
 }
+
+func TestRewardForRank(t *testing.T) {
+	tiers := []RewardTier{{MinRank: 1, MaxRank: 1, Gold: 100}, {MinRank: 2, MaxRank: 0, Gold: 10}}
+	if got := rewardForRank(tiers, 1); got != 100 {
+		t.Fatalf("rank1 = %d", got)
+	}
+	if got := rewardForRank(tiers, 5); got != 10 {
+		t.Fatalf("rank5 = %d", got)
+	}
+}

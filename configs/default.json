@@ -23,5 +23,14 @@
   },
   "reset": {
     "sweepHours": 24
+  },
+  "season": {
+    "rewards": [
+      {"minRank": 1, "maxRank": 1, "gold": 5000},
+      {"minRank": 2, "maxRank": 10, "gold": 2000},
+      {"minRank": 11, "maxRank": 100, "gold": 1000},
+      {"minRank": 101, "maxRank": 1000, "gold": 500},
+      {"minRank": 1001, "maxRank": 0, "gold": 100}
+    ]
   }
 }
