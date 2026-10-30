@@ -537,3 +537,33 @@ battle_get    → 同一条记录
 - `Service.SweepSeason` 懒重置所有过期玩家；`cmd/world` 启动时 sweep 一次，之后每 24h sweep。
 - 冒烟：两名玩家 season 1 → `season_reset` 到 2 → `reset=2`，玩家资源回到 1000/1000/1000，power=0。
 - 单测 `TestResetSeason` 覆盖 escrow 保护与字段清理。
+## 增量验证：3-shard MongoDB（2026-10-30）
+
+### 拓扑
+
+```text
+config server :27100  --configsvr --replSet cfg
+shard1        :27101  --shardsvr  --replSet shard1
+shard2        :27102  --shardsvr  --replSet shard2
+shard3        :27103  --shardsvr  --replSet shard3
+mongos        :27200  --configdb cfg/127.0.0.1:27100
+```
+
+- `tools/shard-setup` 通过 admin 命令自动 `replSetInitiate` 四个副本集。
+- `TestMongoSharded`（`MONGO_SHARDED_URL=mongodb://127.0.0.1:27200`）：
+  - `addShard` 三个 shard；
+  - `enableSharding` + `shardCollection trades {_id:"hashed"}`；
+  - `OpenMongo` 在分片集合上建 `state_expireAt` 与 TTL 索引成功；
+  - create / transition / get / ListPending 通过；
+  - 写入 100 条后查询 `config.chunks`（按 collection UUID），chunks=6，覆盖 shard1/shard2/shard3。
+
+```text
+chunks=6 shards=map[shard1:true shard2:true shard3:true]
+PASS
+```
+
+### 说明
+
+- 本地用便携版 `mongod/mongos` 起集群，脚本未进仓库；`tools/shard-setup` 可复用。
+- 分片键 `_id: hashed` 适合按交易 ID 点查；如果后续按 `world + state` 扫对账，需要再评估分片键或加二级路由字段。
+- CI 暂未加 3-shard job（需要 7 个容器），本地已完整验证。
