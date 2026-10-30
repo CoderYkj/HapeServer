@@ -182,3 +182,37 @@ p50=2.03ms p99=30.26ms
 - WAL 尚未接进 `cmd/world`，恢复只依赖快照；C05 的编排已就绪，待接线。
 - 交易存储用 `trade.MemoryStore`，Mongo Repo 尚未在启动时选择。
 - 压测走 HTTP，不是最终 WebSocket 网关；1k bot 尚未跑。
+## 增量验证：WAL 接线与进程级恢复（2026-10-30）
+
+### 接线
+
+- `cmd/world` 启动时按 `storage.walKind` 打开 `memory` 或 `jetstream` WAL。
+- `world.Service` 在应用玩家效果前写 WAL（grant / setpower / escrow lock/refund/settle）。
+- 启动走 `recovery.Recover`：最新快照 + WAL 尾部；快照保存时记录当前 `wal.LastOffset()`。
+- 每 10s 快照一次，退出时再落一次。
+
+### kill -9 测试
+
+环境：本地 `nats-server 2.15.2`（JetStream 文件存储），Go 1.27.3，goakt v4.6.4。
+
+```text
+1. 启动 world（memory=false / jetstream）
+2. setpower player=1 power=777   → ok
+3. grant    player=1 gold=50     → ok
+4. Stop-Process -Force（等价 kill -9）
+5. 重启 world（同一 stream/subject）
+6. state player=1
+```
+
+结果：
+
+```json
+{"playerId":1,"resources":{"gold":1050,"wood":1000,"food":1000},"power":777,...}
+```
+
+`power` 与 `gold` 均从 WAL 回放恢复，说明进程级恢复链路成立。
+
+### 已知限制
+
+- 交易文档仍在 `trade.MemoryStore`，进程重启后文档丢失；玩家 escrow 效果由 WAL 回放，但 trade 状态需要切 Mongo 才能闭环。
+- 快照每 10s 一次；两次快照之间的状态依赖 WAL，WAL 未做截断/轮转。

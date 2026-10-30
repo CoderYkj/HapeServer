@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"hapeserver/internal/config"
+	"hapeserver/internal/recovery"
 	"hapeserver/internal/runtime"
 	"hapeserver/internal/snapshot"
 	"hapeserver/internal/trade"
+	"hapeserver/internal/wal"
 	"hapeserver/internal/world"
 )
 
@@ -48,16 +50,30 @@ func main() {
 	if err != nil {
 		log.Fatalf("snapshot store: %v", err)
 	}
-	svc := world.NewService(sys, trade.NewMemoryStore())
 
-	if h, payload, _, err := store.LoadLatest(cfg.World.ID); err == nil {
-		if err := svc.Restore(ctx, payload); err != nil {
-			log.Fatalf("restore: %v", err)
+	var walLog wal.Log
+	switch cfg.Storage.WALKind {
+	case "jetstream":
+		js, err := wal.OpenJetStream(wal.JetStreamConfig{
+			URL:     cfg.Storage.NATSURL,
+			Stream:  cfg.Storage.WALStream,
+			Subject: cfg.Storage.WALSubject,
+		})
+		if err != nil {
+			log.Fatalf("jetstream wal: %v", err)
 		}
-		log.Printf("restored snapshot shard=%d offset=%d players=%d", h.Shard, h.WALOffset, len(payload))
-	} else if !errors.Is(err, snapshot.ErrNoSnapshot) {
-		log.Fatalf("load snapshot: %v", err)
+		walLog = js
+		defer func() { _ = js.Close() }()
+	default:
+		walLog = wal.NewMemory()
 	}
+
+	svc := world.NewService(sys, trade.NewMemoryStore(), walLog)
+	last, err := recovery.Recover(store, walLog, cfg.World.ID, svc)
+	if err != nil {
+		log.Fatalf("recover: %v", err)
+	}
+	log.Printf("recovered shard=%d wal_offset=%d", cfg.World.ID, last)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -92,7 +108,7 @@ func main() {
 	})
 
 	stop := make(chan struct{})
-	go snapshotLoop(ctx, stop, store, svc, cfg.World.ID)
+	go snapshotLoop(ctx, stop, store, svc, walLog, cfg.World.ID)
 
 	srv := &http.Server{Addr: *addr, Handler: mux}
 	go func() {
@@ -110,13 +126,13 @@ func main() {
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
 	if payload, err := svc.Snapshot(); err == nil {
-		if _, err := store.Save(cfg.World.ID, 1, 0, payload); err != nil {
+		if _, err := store.Save(cfg.World.ID, 1, walLog.LastOffset(), payload); err != nil {
 			log.Printf("final snapshot: %v", err)
 		}
 	}
 }
 
-func snapshotLoop(ctx context.Context, stop <-chan struct{}, store *snapshot.Store, svc *world.Service, shard uint32) {
+func snapshotLoop(ctx context.Context, stop <-chan struct{}, store *snapshot.Store, svc *world.Service, walLog wal.Log, shard uint32) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
 	for {
@@ -128,7 +144,7 @@ func snapshotLoop(ctx context.Context, stop <-chan struct{}, store *snapshot.Sto
 			if err != nil {
 				continue
 			}
-			if _, err := store.Save(shard, 1, 0, payload); err != nil {
+			if _, err := store.Save(shard, 1, walLog.LastOffset(), payload); err != nil {
 				log.Printf("snapshot: %v", err)
 			}
 			_ = ctx

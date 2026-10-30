@@ -10,12 +10,24 @@ import (
 	"hapeserver/internal/actor"
 	"hapeserver/internal/rank"
 	"hapeserver/internal/trade"
+	"hapeserver/internal/wal"
 )
 
+// Record is one durable player-side effect. It is appended to the WAL before
+// the effect is applied, so a replay reproduces the same state.
+type Record struct {
+	PlayerID uint64 `json:"playerId"`
+	Op       string `json:"op"`
+	Gold     int64  `json:"gold"`
+	Power    int64  `json:"power"`
+	TradeID  string `json:"tradeId,omitempty"`
+	Assets   Assets `json:"assets,omitempty"`
+}
+
 // Service is the single-node P0 facade used by the HTTP gateway and bots.
-// It owns the player actors, the world leaderboard and the trade coordinator.
 type Service struct {
 	sys actor.System
+	wal wal.Log
 
 	mu      sync.Mutex
 	players map[uint64]*PlayerActor
@@ -28,9 +40,13 @@ type Service struct {
 }
 
 // NewService wires the P0 subsystems together.
-func NewService(sys actor.System, store trade.Store) *Service {
+func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
+	if log == nil {
+		log = wal.NewMemory()
+	}
 	s := &Service{
 		sys:     sys,
+		wal:     log,
 		players: make(map[uint64]*PlayerActor),
 		refs:    make(map[uint64]actor.Ref),
 		powers:  make(map[uint64]uint64),
@@ -65,20 +81,18 @@ func (s *Service) EnsurePlayer(ctx context.Context, id uint64) (actor.Ref, error
 
 // SetPower updates the player's power and the leaderboard.
 func (s *Service) SetPower(ctx context.Context, id uint64, power int64) error {
-	if _, err := s.call(ctx, id, map[string]any{"op": "setpower", "power": power}); err != nil {
+	if err := s.record(Record{PlayerID: id, Op: "setpower", Power: power}); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	s.powers[id]++
-	v := s.powers[id]
-	s.mu.Unlock()
-	s.rank.Update(rank.Update{PID: id, Power: power, Version: v})
-	return nil
+	return s.applyPower(ctx, id, power)
 }
 
 // Grant adds gold; used by bots and dev tools.
 func (s *Service) Grant(ctx context.Context, id uint64, gold int64) error {
-	_, err := s.call(ctx, id, map[string]any{"op": "grant", "gold": gold})
+	if err := s.record(Record{PlayerID: id, Op: "grant", Gold: gold}); err != nil {
+		return err
+	}
+	_, err := s.dispatch(ctx, id, map[string]any{"op": "grant", "gold": gold})
 	return err
 }
 
@@ -152,6 +166,49 @@ func (s *Service) Restore(ctx context.Context, payload []byte) error {
 	return nil
 }
 
+// ApplySnapshot implements recovery.Applier.
+func (s *Service) ApplySnapshot(payload []byte) error {
+	return s.Restore(context.Background(), payload)
+}
+
+// ApplyRecord implements recovery.Applier.
+func (s *Service) ApplyRecord(_ uint64, data []byte) error {
+	var r Record
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	switch r.Op {
+	case "grant":
+		_, err := s.dispatch(ctx, r.PlayerID, map[string]any{"op": "grant", "gold": r.Gold})
+		return err
+	case "setpower":
+		return s.applyPower(ctx, r.PlayerID, r.Power)
+	case "lock":
+		_, err := s.dispatch(ctx, r.PlayerID, map[string]any{"op": "lock", "tradeId": r.TradeID, "assets": r.Assets})
+		return err
+	case "refund":
+		_, err := s.dispatch(ctx, r.PlayerID, map[string]any{"op": "refund", "tradeId": r.TradeID})
+		return err
+	case "settle":
+		_, err := s.dispatch(ctx, r.PlayerID, map[string]any{"op": "settle", "tradeId": r.TradeID, "assets": r.Assets})
+		return err
+	default:
+		return fmt.Errorf("unknown record op %q", r.Op)
+	}
+}
+
+// State returns a player's current state for dev/testing.
+func (s *Service) State(id uint64) (PlayerState, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.players[id]
+	if !ok {
+		return PlayerState{}, false
+	}
+	return p.State, true
+}
+
 // Request is one API action.
 type Request struct {
 	PlayerID   uint64 `json:"playerId"`
@@ -171,6 +228,12 @@ func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
 		return nil, s.Grant(ctx, req.PlayerID, req.Gold)
 	case "setpower":
 		return nil, s.SetPower(ctx, req.PlayerID, req.Power)
+	case "state":
+		st, ok := s.State(req.PlayerID)
+		if !ok {
+			return nil, fmt.Errorf("player not found")
+		}
+		return st, nil
 	case "rank":
 		rankN, ok := s.rank.RankOf(req.PlayerID)
 		return map[string]any{"rank": rankN, "ok": ok}, nil
@@ -193,7 +256,28 @@ func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
 	}
 }
 
-func (s *Service) call(ctx context.Context, pid uint64, body map[string]any) (map[string]any, error) {
+func (s *Service) applyPower(ctx context.Context, id uint64, power int64) error {
+	if _, err := s.dispatch(ctx, id, map[string]any{"op": "setpower", "power": power}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.powers[id]++
+	v := s.powers[id]
+	s.mu.Unlock()
+	s.rank.Update(rank.Update{PID: id, Power: power, Version: v})
+	return nil
+}
+
+func (s *Service) record(r Record) error {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	_, err = s.wal.Append(b)
+	return err
+}
+
+func (s *Service) dispatch(ctx context.Context, pid uint64, body map[string]any) (map[string]any, error) {
 	ref, err := s.EnsurePlayer(ctx, pid)
 	if err != nil {
 		return nil, err
@@ -231,22 +315,27 @@ func (s *Service) call(ctx context.Context, pid uint64, body map[string]any) (ma
 type escrowAdapter struct{ svc *Service }
 
 func (e *escrowAdapter) Lock(ctx context.Context, pid uint64, tradeID string, a trade.Assets) error {
-	_, err := e.svc.call(ctx, pid, map[string]any{
-		"op": "lock", "tradeId": tradeID,
-		"assets": Assets{Gold: a.Gold, Wood: a.Wood, Food: a.Food},
-	})
+	assets := Assets{Gold: a.Gold, Wood: a.Wood, Food: a.Food}
+	if err := e.svc.record(Record{PlayerID: pid, Op: "lock", TradeID: tradeID, Assets: assets}); err != nil {
+		return err
+	}
+	_, err := e.svc.dispatch(ctx, pid, map[string]any{"op": "lock", "tradeId": tradeID, "assets": assets})
 	return err
 }
 
 func (e *escrowAdapter) Refund(ctx context.Context, pid uint64, tradeID string) error {
-	_, err := e.svc.call(ctx, pid, map[string]any{"op": "refund", "tradeId": tradeID})
+	if err := e.svc.record(Record{PlayerID: pid, Op: "refund", TradeID: tradeID}); err != nil {
+		return err
+	}
+	_, err := e.svc.dispatch(ctx, pid, map[string]any{"op": "refund", "tradeId": tradeID})
 	return err
 }
 
 func (e *escrowAdapter) Settle(ctx context.Context, pid uint64, tradeID string, credit trade.Assets) error {
-	_, err := e.svc.call(ctx, pid, map[string]any{
-		"op": "settle", "tradeId": tradeID,
-		"assets": Assets{Gold: credit.Gold, Wood: credit.Wood, Food: credit.Food},
-	})
+	assets := Assets{Gold: credit.Gold, Wood: credit.Wood, Food: credit.Food}
+	if err := e.svc.record(Record{PlayerID: pid, Op: "settle", TradeID: tradeID, Assets: assets}); err != nil {
+		return err
+	}
+	_, err := e.svc.dispatch(ctx, pid, map[string]any{"op": "settle", "tradeId": tradeID, "assets": assets})
 	return err
 }

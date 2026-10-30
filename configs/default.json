@@ -9,7 +9,11 @@
   },
   "storage": {
     "snapshotDir": "./data/snapshots",
-    "walDir": "./data/wal"
+    "walDir": "./data/wal",
+    "walKind": "memory",
+    "natsUrl": "nats://127.0.0.1:4222",
+    "walStream": "WAL_1",
+    "walSubject": "wal.1"
   },
   "trade": {
     "timeoutSeconds": 600,

@@ -28,6 +28,10 @@ type World struct {
 type Storage struct {
 	SnapshotDir string `json:"snapshotDir"`
 	WALDir      string `json:"walDir"`
+	WALKind     string `json:"walKind"` // memory | jetstream
+	NATSURL     string `json:"natsUrl"`
+	WALStream   string `json:"walStream"`
+	WALSubject  string `json:"walSubject"`
 }
 
 type Trade struct {
@@ -44,9 +48,16 @@ func Defaults() Config {
 	return Config{
 		Runtime: Runtime{Kind: "goakt"},
 		World:   World{ID: 1, Region: "dev", Shards: 12},
-		Storage: Storage{SnapshotDir: "./data/snapshots", WALDir: "./data/wal"},
-		Trade:   Trade{TimeoutSeconds: 600, MaxDaily: 20},
-		Reset:   Reset{SweepHours: 24},
+		Storage: Storage{
+			SnapshotDir: "./data/snapshots",
+			WALDir:      "./data/wal",
+			WALKind:     "memory",
+			NATSURL:     "nats://127.0.0.1:4222",
+			WALStream:   "WAL_1",
+			WALSubject:  "wal.1",
+		},
+		Trade: Trade{TimeoutSeconds: 600, MaxDaily: 20},
+		Reset: Reset{SweepHours: 24},
 	}
 }
 
