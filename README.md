@@ -43,8 +43,8 @@
 | G02 escrow | 完成 | 锁定/退款/结算幂等单测 |
 | G03 TradeService | 完成 | 创建/接受/结算/取消/对账，可从 settling/refunding 续跑 |
 | G04 失败注入 | 完成 | 创建失败、接受冲突、部分结算、过期对账 |
-| H02 玩家接入 | 完成 | 原生 TCP 帧协议；dev token；gateway 唯一入口 |
-| TCP 玩家压测 | 完成 | 1000 TCP 连接 / 30s：5001 请求、0 错误、p99 1.17ms |
+| H02 玩家接入 | 完成 | 原生 TCP + protobuf v3；dev token；gateway 唯一入口 |
+| TCP 玩家压测 | 完成 | 1000 TCP 连接 / 60s：11,001 请求、0 错误、p99 1.46ms |
 | 玩家推送/续传 | 暂未实现 | 原生 TCP 当前为请求-响应，续传由 state 查询替代 |
 | 独立 gateway | 完成 | cmd/gateway 只做 TCP 接入，world 无玩家入口 |
 | 自定义 TCP link | 完成 | 帧协议/多路复用/超时；gateway→world |
@@ -73,6 +73,7 @@
 | 快照原子 offset | 完成 | mutation barrier + SnapshotWithOffset |
 | 跨进程 RF=3 | 完成 | peer 复制 + token；owner 本地丢失可从 peer 恢复 |
 | 快照最高 offset | 完成 | 多写者下按 WAL offset 选最新，不按文件时间 |
+| 玩家请求协议 | 完成 | protobuf v3 proto/player/v1；响应 data 为 JSON 字节 |
 | WAL R3 | 完成 | 3 节点 JetStream，walReplicas=3；单节点故障可写/可恢复 |
 | Prometheus 导出 | 完成 | /metrics/prometheus 文本格式 |
 | NATS R3 模板 | 完成 | deploy/nats/docker-compose.yml + CI wal-r3 job |

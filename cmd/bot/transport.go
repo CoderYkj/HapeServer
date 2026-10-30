@@ -7,7 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"hapeserver/internal/link"
+	"hapeserver/internal/protocol/playerv1"
 )
 
 type transport struct {
@@ -24,25 +27,35 @@ func dialTCP(addr string, pid uint64) (*transport, error) {
 }
 
 func (t *transport) do(req apiRequest) (json.RawMessage, error) {
-	body, _ := json.Marshal(struct {
-		Token   string     `json:"token"`
-		Request apiRequest `json:"request"`
-	}{Token: t.token, Request: req})
+	in := &playerv1.Request{
+		Token:      t.token,
+		PlayerId:   req.PlayerID,
+		TargetId:   req.Target,
+		Action:     req.Action,
+		Gold:       req.Gold,
+		TargetGold: req.TargetGold,
+		Power:      req.Power,
+		TradeId:    req.TradeID,
+		K:          int32(req.K),
+		Season:     req.Season,
+		DefPower:   req.DefPower,
+		BattleId:   req.BattleID,
+	}
+	body, err := proto.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	data, err := t.c.Call(ctx, body)
 	if err != nil {
 		return nil, err
 	}
-	var out struct {
-		OK    bool            `json:"ok"`
-		Data  json.RawMessage `json:"data"`
-		Error string          `json:"error"`
-	}
-	if err := json.Unmarshal(data, &out); err != nil {
+	var out playerv1.Response
+	if err := proto.Unmarshal(data, &out); err != nil {
 		return nil, err
 	}
-	if !out.OK {
+	if !out.Ok {
 		return nil, fmt.Errorf("%s", out.Error)
 	}
 	return out.Data, nil

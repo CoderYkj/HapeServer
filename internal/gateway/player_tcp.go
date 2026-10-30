@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
+
 	"hapeserver/internal/link"
+	"hapeserver/internal/protocol/playerv1"
 	"hapeserver/internal/world"
 )
 
@@ -14,42 +17,57 @@ type Handler interface {
 	Handle(ctx context.Context, req world.Request) (any, error)
 }
 
-// tcpEnvelope is one player request. The dev token is sent per request; JWT
-// session binding replaces it in P1.
-type tcpEnvelope struct {
-	Token   string        `json:"token"`
-	Request world.Request `json:"request"`
-}
-
-type tcpResponse struct {
-	OK    bool   `json:"ok"`
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
-}
-
-// NewPlayerHandler adapts a command handler to the raw TCP player protocol.
+// NewPlayerHandler adapts a command handler to the protobuf v3 player
+// protocol carried by the TCP framing layer.
 func NewPlayerHandler(h Handler) link.Handler {
 	return func(ctx context.Context, payload []byte) ([]byte, error) {
-		var in tcpEnvelope
-		if err := json.Unmarshal(payload, &in); err != nil {
+		var in playerv1.Request
+		if err := proto.Unmarshal(payload, &in); err != nil {
 			return nil, fmt.Errorf("bad request: %w", err)
 		}
 		sess, err := DevToken(in.Token)
 		if err != nil {
-			return json.Marshal(tcpResponse{Error: "unauthorized"})
+			return marshalPlayerResponse(&playerv1.Response{Error: "unauthorized"})
 		}
-		req := in.Request
+		req := world.Request{
+			Seq:        in.Seq,
+			PlayerID:   in.PlayerId,
+			Target:     in.TargetId,
+			Action:     in.Action,
+			Gold:       in.Gold,
+			TargetGold: in.TargetGold,
+			Power:      in.Power,
+			TradeID:    in.TradeId,
+			K:          int(in.K),
+			Season:     in.Season,
+			DefPower:   in.DefPower,
+			BattleID:   in.BattleId,
+		}
 		if req.PlayerID == 0 {
 			req.PlayerID = sess.PlayerID
 		}
 		if req.PlayerID != sess.PlayerID {
-			return json.Marshal(tcpResponse{Error: "player mismatch"})
+			return marshalPlayerResponse(&playerv1.Response{Error: "player mismatch"})
 		}
 		data, herr := h.Handle(ctx, req)
-		resp := tcpResponse{OK: herr == nil, Data: data}
+		resp := &playerv1.Response{Ok: herr == nil}
 		if herr != nil {
 			resp.Error = herr.Error()
+		} else if data != nil {
+			b, err := json.Marshal(data)
+			if err != nil {
+				return nil, fmt.Errorf("marshal data: %w", err)
+			}
+			resp.Data = b
 		}
-		return json.Marshal(resp)
+		return marshalPlayerResponse(resp)
 	}
+}
+
+func marshalPlayerResponse(resp *playerv1.Response) ([]byte, error) {
+	b, err := proto.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal response: %w", err)
+	}
+	return b, nil
 }

@@ -2,11 +2,13 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"hapeserver/internal/link"
+	"hapeserver/internal/protocol/playerv1"
 	"hapeserver/internal/world"
 )
 
@@ -27,58 +29,48 @@ func startPlayerTCP(t *testing.T) *link.Server {
 	return srv
 }
 
-func TestPlayerTCPCommand(t *testing.T) {
-	srv := startPlayerTCP(t)
+func callTCP(t *testing.T, srv *link.Server, in *playerv1.Request) *playerv1.Response {
+	t.Helper()
 	c, err := link.Dial(srv.Addr(), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Close() }()
-
-	body, _ := json.Marshal(tcpEnvelope{Token: "dev:1:7", Request: world.Request{PlayerID: 7, Action: "rank"}})
+	body, err := proto.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
 	data, err := c.Call(context.Background(), body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp tcpResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
+	var out playerv1.Response
+	if err := proto.Unmarshal(data, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.OK {
+	return &out
+}
+
+func TestPlayerTCPCommand(t *testing.T) {
+	srv := startPlayerTCP(t)
+	resp := callTCP(t, srv, &playerv1.Request{Token: "dev:1:7", PlayerId: 7, Action: "rank"})
+	if !resp.Ok {
 		t.Fatalf("resp = %+v", resp)
 	}
 }
 
 func TestPlayerTCPAuth(t *testing.T) {
 	srv := startPlayerTCP(t)
-	c, _ := link.Dial(srv.Addr(), time.Second)
-	defer func() { _ = c.Close() }()
-
-	body, _ := json.Marshal(tcpEnvelope{Token: "bad", Request: world.Request{PlayerID: 1, Action: "rank"}})
-	data, err := c.Call(context.Background(), body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var resp tcpResponse
-	_ = json.Unmarshal(data, &resp)
-	if resp.OK || resp.Error != "unauthorized" {
+	resp := callTCP(t, srv, &playerv1.Request{Token: "bad", PlayerId: 1, Action: "rank"})
+	if resp.Ok || resp.Error != "unauthorized" {
 		t.Fatalf("resp = %+v", resp)
 	}
 }
 
 func TestPlayerTCPMismatch(t *testing.T) {
 	srv := startPlayerTCP(t)
-	c, _ := link.Dial(srv.Addr(), time.Second)
-	defer func() { _ = c.Close() }()
-
-	body, _ := json.Marshal(tcpEnvelope{Token: "dev:1:7", Request: world.Request{PlayerID: 8, Action: "rank"}})
-	data, err := c.Call(context.Background(), body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var resp tcpResponse
-	_ = json.Unmarshal(data, &resp)
-	if resp.OK || resp.Error != "player mismatch" {
+	resp := callTCP(t, srv, &playerv1.Request{Token: "dev:1:7", PlayerId: 8, Action: "rank"})
+	if resp.Ok || resp.Error != "player mismatch" {
 		t.Fatalf("resp = %+v", resp)
 	}
 }

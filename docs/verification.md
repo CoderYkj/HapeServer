@@ -808,3 +808,62 @@ TestPlayerTCPCommand / TestPlayerTCPAuth / TestPlayerTCPMismatch  PASS
 - 原生 TCP 还没有服务端主动 push 与增量 resume；客户端重连后需重新查询 state。
 - token 每请求携带，增加了少量字节与鉴权开销。
 - 玩家连接没有应用层心跳；服务端 90s 读超时会断开完全空闲的连接。
+## 增量验证：玩家请求协议切换 protobuf v3（2026-10-30）
+
+### Schema
+
+`proto/player/v1/player.proto`：
+
+```proto
+syntax = "proto3";
+package hape.player.v1;
+option go_package = "hapeserver/internal/protocol/playerv1;playerv1";
+
+message Request {
+  string token = 1;
+  uint64 seq = 2;
+  uint64 player_id = 3;
+  string action = 4;
+  uint64 target_id = 5;
+  int64 gold = 6;
+  int64 target_gold = 7;
+  int64 power = 8;
+  string trade_id = 9;
+  int32 k = 10;
+  uint32 season = 11;
+  int64 def_power = 12;
+  string battle_id = 13;
+}
+
+message Response {
+  bool ok = 1;
+  string error = 2;
+  bytes data = 3;
+}
+```
+
+- `protoc --go_out=. --go_opt=module=hapeserver proto/player/v1/player.proto` 生成 `internal/protocol/playerv1/player.pb.go`。
+- TCP 帧层不变（`internal/link`），payload 从 JSON 换成 protobuf。
+- `Response.data` 仍是 JSON 字节，避免把 world 领域模型绑进玩家 wire schema；P1 可为高频响应补 typed message。
+
+### 改动
+
+- `gateway.NewPlayerHandler`：`proto.Unmarshal` 请求 → `world.Request` → `proto.Marshal` 响应。
+- `cmd/bot` 的 `transport.do` 同样走 protobuf。
+- 删除旧的 `internal/protocol/messages.go`（JSON 占位）。
+- `TestPlayerTCPCommand/Auth/Mismatch` 改为 protobuf 编解码。
+
+### 压测
+
+```text
+100 bot / 10s：1451 请求，0 错误，p99 3201µs
+1000 bot / 60s：11001 请求，0 错误，p99 1463µs
+```
+
+- 30s 的 1k 短跑曾出现 15ms p99（启动/GC 尾巴），60s 稳定后回落到 1.46ms。
+- protobuf 请求体积比 JSON 小，编解码不构成瓶颈；world actor 仍是主要耗时。
+
+### 说明
+
+- 这次只切换了“玩家 ↔ gateway”的请求协议；gateway → world 的内部 link 仍是 JSON payload（属于服务内部协议，不在玩家链路）。
+- `seq` 目前只透传，响应关联仍由 TCP 帧的 `id` 完成。
