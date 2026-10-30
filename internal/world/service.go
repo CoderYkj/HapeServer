@@ -3,11 +3,13 @@ package world
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"hapeserver/internal/actor"
+	"hapeserver/internal/battle"
 	"hapeserver/internal/rank"
 	"hapeserver/internal/trade"
 	"hapeserver/internal/wal"
@@ -35,8 +37,10 @@ type Service struct {
 	powers  map[uint64]uint64
 	seq     uint64
 
-	rank  *rank.WorldRankActor
-	trade *trade.Service
+	season  uint32
+	rank    *rank.WorldRankActor
+	trade   *trade.Service
+	battles *battle.Service
 }
 
 // NewService wires the P0 subsystems together.
@@ -50,7 +54,9 @@ func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
 		players: make(map[uint64]*PlayerActor),
 		refs:    make(map[uint64]actor.Ref),
 		powers:  make(map[uint64]uint64),
+		season:  1,
 		rank:    rank.NewWorldRankActor(nil),
+		battles: battle.NewService(nil),
 	}
 	s.trade = trade.NewService(store, &escrowAdapter{svc: s})
 	return s
@@ -66,7 +72,7 @@ func (s *Service) EnsurePlayer(ctx context.Context, id uint64) (actor.Ref, error
 	if ref, ok := s.refs[id]; ok {
 		return ref, nil
 	}
-	p := NewPlayer(id, 1)
+	p := NewPlayer(id, s.season)
 	p.State.Resources = Assets{Gold: 1000, Wood: 1000, Food: 1000}
 	ref, err := s.sys.Spawn(ctx, fmt.Sprintf("player-%d", id), p)
 	if err != nil {
@@ -77,6 +83,72 @@ func (s *Service) EnsurePlayer(ctx context.Context, id uint64) (actor.Ref, error
 	s.rank.Update(rank.Update{PID: id, Power: 0, Version: 1})
 	s.powers[id] = 1
 	return ref, nil
+}
+
+// SetSeason changes the current season used for new and stale players.
+func (s *Service) SetSeason(season uint32) {
+	s.mu.Lock()
+	s.season = season
+	s.mu.Unlock()
+}
+
+// CurrentSeason reports the active season.
+func (s *Service) CurrentSeason() uint32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.season
+}
+
+func (s *Service) resetPlayer(ctx context.Context, pid uint64, ref actor.Ref, season uint32) (bool, error) {
+	s.mu.Lock()
+	p := s.players[pid]
+	if p == nil || p.State.SeasonID == season {
+		s.mu.Unlock()
+		return false, nil
+	}
+	if len(p.State.Escrow) > 0 {
+		s.mu.Unlock()
+		return false, ErrActiveEscrow
+	}
+	s.mu.Unlock()
+
+	if _, err := s.ask(ctx, pid, ref, map[string]any{"op": "reset", "season": season}); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	s.powers[pid]++
+	v := s.powers[pid]
+	s.mu.Unlock()
+	s.rank.Update(rank.Update{PID: pid, Power: 0, Version: v})
+	return true, nil
+}
+
+// SweepSeason lazily resets every known player whose season is stale.
+// Players with active escrow are skipped and counted separately.
+func (s *Service) SweepSeason(ctx context.Context, season uint32) (int, int) {
+	s.SetSeason(season)
+	s.mu.Lock()
+	ids := make([]uint64, 0, len(s.players))
+	for id := range s.players {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+
+	reset, skipped := 0, 0
+	for _, id := range ids {
+		ref, err := s.EnsurePlayer(ctx, id)
+		if err != nil {
+			continue
+		}
+		ok, err := s.resetPlayer(ctx, id, ref, season)
+		switch {
+		case errors.Is(err, ErrActiveEscrow):
+			skipped++
+		case err == nil && ok:
+			reset++
+		}
+	}
+	return reset, skipped
 }
 
 // SetPower updates the player's power and the leaderboard.
@@ -104,7 +176,10 @@ func (s *Service) TradeCreate(ctx context.Context, a, b uint64, aGold, bGold int
 	if _, err := s.EnsurePlayer(ctx, b); err != nil {
 		return nil, err
 	}
-	return s.trade.Create(ctx, 1, 1, a, b, trade.Assets{Gold: aGold}, trade.Assets{Gold: bGold}, 10*time.Minute)
+	s.mu.Lock()
+	season := s.season
+	s.mu.Unlock()
+	return s.trade.Create(ctx, 1, season, a, b, trade.Assets{Gold: aGold}, trade.Assets{Gold: bGold}, 10*time.Minute)
 }
 
 // TradeAccept locks B's side.
@@ -220,6 +295,9 @@ type Request struct {
 	Power      int64  `json:"power"`
 	TradeID    string `json:"tradeId"`
 	K          int    `json:"k"`
+	Season     uint32 `json:"season"`
+	DefPower   int64  `json:"defPower"`
+	BattleID   string `json:"battleId"`
 }
 
 // Handle dispatches one API action.
@@ -254,6 +332,20 @@ func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
 		return nil, s.TradeCancel(ctx, req.TradeID)
 	case "trade_get":
 		return s.trade.Get(ctx, req.TradeID)
+	case "reconcile":
+		n, err := s.Reconcile(ctx, int64(req.K))
+		return map[string]any{"touched": n}, err
+	case "battle_submit":
+		return s.battles.Submit(ctx, 1, s.CurrentSeason(), req.PlayerID, req.Target, req.Power, req.DefPower)
+	case "battle_get":
+		return s.battles.Get(ctx, req.BattleID)
+	case "season_reset":
+		season := req.Season
+		if season == 0 {
+			season = s.CurrentSeason() + 1
+		}
+		reset, skipped := s.SweepSeason(ctx, season)
+		return map[string]any{"season": season, "reset": reset, "skipped": skipped}, nil
 	default:
 		return nil, fmt.Errorf("unknown action %q", req.Action)
 	}
@@ -285,6 +377,20 @@ func (s *Service) dispatch(ctx context.Context, pid uint64, body map[string]any)
 	if err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
+	p := s.players[pid]
+	stale := p != nil && p.State.SeasonID != s.season
+	season := s.season
+	s.mu.Unlock()
+	if stale {
+		if _, err := s.resetPlayer(ctx, pid, ref, season); err != nil {
+			return nil, err
+		}
+	}
+	return s.ask(ctx, pid, ref, body)
+}
+
+func (s *Service) ask(ctx context.Context, pid uint64, ref actor.Ref, body map[string]any) (map[string]any, error) {
 	s.mu.Lock()
 	s.seq++
 	op := fmt.Sprintf("op-%d-%d", pid, s.seq)
@@ -341,4 +447,9 @@ func (e *escrowAdapter) Settle(ctx context.Context, pid uint64, tradeID string, 
 	}
 	_, err := e.svc.dispatch(ctx, pid, map[string]any{"op": "settle", "tradeId": tradeID, "assets": assets})
 	return err
+}
+
+// Reconcile resumes non-terminal trades (settling or expired).
+func (s *Service) Reconcile(ctx context.Context, limit int64) (int, error) {
+	return s.trade.Reconcile(ctx, limit)
 }

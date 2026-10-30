@@ -23,6 +23,7 @@ type World struct {
 	ID     uint32 `json:"id"`
 	Region string `json:"region"`
 	Shards int    `json:"shards"`
+	Season uint32 `json:"season"`
 }
 
 type Storage struct {
@@ -49,7 +50,7 @@ type Reset struct {
 func Defaults() Config {
 	return Config{
 		Runtime: Runtime{Kind: "goakt"},
-		World:   World{ID: 1, Region: "dev", Shards: 12},
+		World:   World{ID: 1, Region: "dev", Shards: 12, Season: 1},
 		Storage: Storage{
 			SnapshotDir: "./data/snapshots",
 			WALDir:      "./data/wal",

@@ -84,11 +84,15 @@ func main() {
 	}
 
 	svc := world.NewService(sys, tradeStore, walLog)
+	svc.SetSeason(cfg.World.Season)
 	last, err := recovery.Recover(store, walLog, cfg.World.ID, svc)
 	if err != nil {
 		log.Fatalf("recover: %v", err)
 	}
 	log.Printf("recovered shard=%d wal_offset=%d", cfg.World.ID, last)
+	if reset, skipped := svc.SweepSeason(ctx, cfg.World.Season); reset > 0 || skipped > 0 {
+		log.Printf("season sweep: reset=%d skipped=%d", reset, skipped)
+	}
 
 	tcpSrv, err := link.Listen(*tcpAddr, world.NewTCPHandler(svc))
 	if err != nil {
@@ -136,6 +140,8 @@ func main() {
 
 	stop := make(chan struct{})
 	go snapshotLoop(ctx, stop, store, svc, walLog, cfg.World.ID)
+	go reconcileLoop(ctx, stop, svc)
+	go seasonLoop(ctx, stop, svc)
 
 	srv := &http.Server{Addr: *addr, Handler: mux}
 	go func() {
@@ -189,4 +195,39 @@ func fmtSscan(s string, v *uint64) (int, error) {
 	}
 	*v = n
 	return 1, nil
+}
+
+func reconcileLoop(ctx context.Context, stop <-chan struct{}, svc *world.Service) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			n, err := svc.Reconcile(cctx, 100)
+			cancel()
+			if err != nil {
+				log.Printf("reconcile: %v", err)
+			} else if n > 0 {
+				log.Printf("reconcile: touched=%d", n)
+			}
+		}
+	}
+}
+
+func seasonLoop(ctx context.Context, stop <-chan struct{}, svc *world.Service) {
+	t := time.NewTicker(24 * time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			if reset, skipped := svc.SweepSeason(ctx, svc.CurrentSeason()); reset > 0 || skipped > 0 {
+				log.Printf("season sweep: reset=%d skipped=%d", reset, skipped)
+			}
+		}
+	}
 }

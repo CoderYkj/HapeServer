@@ -56,6 +56,9 @@
 | Mongo 真实集成 | 完成 | 本机 MongoDB 7.0.14；交易重启后仍为 settled |
 | Mongo 索引/TTL | 完成 | state_expireAt + 	tl_expireDate（30 天留存） |
 | 副本集事务 | 完成 | 单节点 s0；WithTransaction 双写通过 |
+| 对账 worker | 完成 | 每 30s Reconcile，推进 settling/过期交易 |
+| 战斗 submit-settle | 完成 | 确定性胜负、attle_get；内存存储 |
+| 赛季重置 | 完成 | 懒重置 + 24h sweep，escrow 未清则跳过 |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |

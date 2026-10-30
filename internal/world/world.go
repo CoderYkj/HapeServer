@@ -4,6 +4,7 @@ package world
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"hapeserver/internal/actor"
@@ -78,6 +79,7 @@ func (p *PlayerActor) Receive(ctx actor.Context, env *actor.Envelope) {
 			Op      string `json:"op"`
 			Gold    int64  `json:"gold"`
 			Power   int64  `json:"power"`
+			Season  uint32 `json:"season"`
 			TradeID string `json:"tradeId"`
 			Assets  Assets `json:"assets"`
 		}
@@ -107,6 +109,11 @@ func (p *PlayerActor) Receive(ctx actor.Context, env *actor.Envelope) {
 			}
 		case "settle":
 			if err := p.SettleEscrow(cmd.TradeID, cmd.Assets); err != nil {
+				resp["ok"] = false
+				resp["error"] = err.Error()
+			}
+		case "reset":
+			if err := p.resetSeason(cmd.Season); err != nil {
 				resp["ok"] = false
 				resp["error"] = err.Error()
 			}
@@ -169,4 +176,21 @@ func (r *RegionActor) Receive(_ actor.Context, env *actor.Envelope) {
 			delete(r.Reserved, cmd.PlayerID)
 		}
 	}
+}
+
+// ErrActiveEscrow blocks a season reset while assets are still locked.
+var ErrActiveEscrow = errors.New("active escrow")
+
+func (p *PlayerActor) resetSeason(season uint32) error {
+	if len(p.State.Escrow) > 0 {
+		return ErrActiveEscrow
+	}
+	p.State.SeasonID = season
+	p.State.Power = 0
+	p.State.Resources = Assets{Gold: 1000, Wood: 1000, Food: 1000}
+	p.State.City = CityState{}
+	p.State.Marches = nil
+	p.State.Queues = nil
+	p.State.Settled = make(map[string]bool)
+	return nil
 }

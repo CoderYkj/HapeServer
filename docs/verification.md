@@ -512,3 +512,28 @@ TestMongoReplicaSetTransaction       PASS
 
 - 目前业务代码没有使用跨文档事务；本测试验证的是驱动/集群具备事务能力。交易状态机仍以单文档 CAS（`version + state`）为准。
 - TTL 是冷数据清理，不替代对账；过期未结算的交易仍由 `ListPending` + 协调器处理。
+## 增量验证：对账 worker / 战斗 / 赛季重置（2026-10-30）
+
+### 对账
+
+- `world.Service.Reconcile` 委托 `trade.Service.Reconcile`，`cmd/world` 每 30s 跑一次，`touched>0` 时打日志。
+- API 增加 `{"action":"reconcile","k":100}` 便于手工触发。
+- 复用已有 `TestReconcileExpired` / `TestReconcileResumesSettling`。
+
+### 战斗
+
+- `internal/battle`：`Resolve` 高战力胜、平局防守方胜；`Submit` 直接落到 `settled`。
+- API：`battle_submit`（power/defPower）、`battle_get`；P0 用内存存储，重启丢失。
+
+```text
+battle_submit → winner=1, state=settled
+battle_get    → 同一条记录
+```
+
+### 赛季重置
+
+- `PlayerActor.resetSeason` 清空 power/资源/城市/行军/队列，保留 paid 资产不在 P0 模型内。
+- 有 active escrow 时返回 `ErrActiveEscrow`，不强制重置。
+- `Service.SweepSeason` 懒重置所有过期玩家；`cmd/world` 启动时 sweep 一次，之后每 24h sweep。
+- 冒烟：两名玩家 season 1 → `season_reset` 到 2 → `reset=2`，玩家资源回到 1000/1000/1000，power=0。
+- 单测 `TestResetSeason` 覆盖 escrow 保护与字段清理。
