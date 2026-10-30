@@ -979,7 +979,7 @@ p99 约 29ms，明显高于 60s 短跑的 815µs。观测上是启动阶段 1000
 
 ### 3. 快照性能
 
-- 快照编码从 JSON 改为 protobuf `PlayerStates`；`Restore` 先试 protobuf，失败回退旧 JSON。
+- 快照编码从 JSON 改为 protobuf `PlayerStates`；`Restore` 只接受 protobuf，旧 JSON 快照不再兼容。
 - `SnapshotWithOffset` 只在 `mutMu` 内复制状态 + 取 offset，JSON/protobuf 编码在锁外执行。
 - 这修掉了 1k bot 的 30–40ms p99 周期性尖刺：之前是每 10s 快照阻塞/编码。
 

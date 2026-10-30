@@ -1,8 +1,6 @@
 package world
 
 import (
-	"encoding/json"
-
 	"google.golang.org/protobuf/proto"
 
 	"hapeserver/internal/battle"
@@ -154,16 +152,12 @@ func decodeStates(payload []byte) ([]PlayerState, error) {
 		return nil, nil
 	}
 	var ps worldv1.PlayerStates
-	if err := proto.Unmarshal(payload, &ps); err == nil && len(ps.Players) > 0 {
-		states := make([]PlayerState, 0, len(ps.Players))
-		for _, p := range ps.Players {
-			states = append(states, stateFromProto(p))
-		}
-		return states, nil
-	}
-	var states []PlayerState
-	if err := json.Unmarshal(payload, &states); err != nil {
+	if err := proto.Unmarshal(payload, &ps); err != nil {
 		return nil, err
+	}
+	states := make([]PlayerState, 0, len(ps.Players))
+	for _, p := range ps.Players {
+		states = append(states, stateFromProto(p))
 	}
 	return states, nil
 }

@@ -26,3 +26,9 @@ func TestDeltaFieldLevel(t *testing.T) {
 		t.Fatalf("city should be unchanged: %+v", d.City)
 	}
 }
+
+func TestDecodeRejectsLegacyJSON(t *testing.T) {
+	if _, err := decodeStates([]byte(`[]`)); err == nil {
+		t.Fatal("legacy JSON snapshot must be rejected")
+	}
+}
