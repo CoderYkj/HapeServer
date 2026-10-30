@@ -865,5 +865,45 @@ message Response {
 
 ### 说明
 
-- 这次只切换了“玩家 ↔ gateway”的请求协议；gateway → world 的内部 link 仍是 JSON payload（属于服务内部协议，不在玩家链路）。
+- 本节是中间阶段记录：当时只切换了玩家→gateway；随后已把 gateway→world 也统一为 typed protobuf，见下一节。
 - `seq` 目前只透传，响应关联仍由 TCP 帧的 `id` 完成。
+## 增量验证：全链路 protobuf 与去 data JSON（2026-10-30）
+
+### Schema
+
+- `proto/world/v1/world.proto`：`Command` + `Response`，`Response.result` 为 `oneof`：
+  - `PlayerState`
+  - `RankResult` / `TopResult`
+  - `Trade`
+  - `Battle` / `BattlePage`
+  - `ActionStats`（reconcile / season_reset）
+- `proto/player/v1/player.proto`：`Request { token, worldv1.Command command }`。
+- 玩家响应直接复用 `worldv1.Response`，不再有 `bytes data`。
+
+### 全链路
+
+```text
+bot --player.Request(protobuf)--> gateway --worldv1.Command(protobuf)--> world
+bot <--worldv1.Response(protobuf)--- gateway <--worldv1.Response(protobuf)--- world
+```
+
+- `world.NewTCPHandler`：`Command` → `world.Request` → `Service.Handle` → 按 action 编码 typed `Response`。
+- `gateway.TCPRemote`：`world.Request` → `Command`，解码 `Response`。
+- `gateway.NewPlayerHandler`：校验 token 后直接转发 typed response。
+- `cmd/bot`：构造 `player.Request`，解码 `worldv1.Response`；交易从 `resp.GetTrade().GetId()` 取 ID。
+- player/gateway/link 路径已无 `encoding/json` 编解码。
+
+### 压测
+
+```text
+100 bot / 10s：1451 请求，0 错误，p99 795µs
+1000 bot / 60s：11001 请求，0 错误，p99 815µs
+```
+
+比上一版 JSON-data 的 1.46ms p99 更好，说明去掉 JSON 解包有效。
+
+### 说明
+
+- 快照/WAL 仍是 JSON 持久化格式，这不属于请求协议。
+- HTTP 仍保留给 world 内部 `/metrics`、`/healthz`、`/api/command` 调试；玩家链路只走 TCP。
+- `ActionStats.reset` 在 Go 生成代码里是 `Reset_`（与 protobuf 的 `Reset()` 方法冲突），编码时已处理。

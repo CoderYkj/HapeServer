@@ -2,72 +2,67 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"google.golang.org/protobuf/proto"
 
 	"hapeserver/internal/link"
 	"hapeserver/internal/protocol/playerv1"
+	"hapeserver/internal/protocol/worldv1"
 	"hapeserver/internal/world"
 )
 
 // Handler is the command surface behind the player TCP gateway.
 type Handler interface {
-	Handle(ctx context.Context, req world.Request) (any, error)
+	Handle(ctx context.Context, req world.Request) (*worldv1.Response, error)
 }
 
-// NewPlayerHandler adapts a command handler to the protobuf v3 player
+// NewPlayerHandler adapts the typed world handler to the protobuf v3 player
 // protocol carried by the TCP framing layer.
 func NewPlayerHandler(h Handler) link.Handler {
 	return func(ctx context.Context, payload []byte) ([]byte, error) {
 		var in playerv1.Request
 		if err := proto.Unmarshal(payload, &in); err != nil {
-			return nil, fmt.Errorf("bad request: %w", err)
+			return nil, err
 		}
 		sess, err := DevToken(in.Token)
 		if err != nil {
-			return marshalPlayerResponse(&playerv1.Response{Error: "unauthorized"})
+			return marshalResponse(&worldv1.Response{Error: "unauthorized"})
+		}
+		cmd := in.GetCommand()
+		if cmd == nil {
+			return marshalResponse(&worldv1.Response{Error: "missing command"})
 		}
 		req := world.Request{
-			Seq:        in.Seq,
-			PlayerID:   in.PlayerId,
-			Target:     in.TargetId,
-			Action:     in.Action,
-			Gold:       in.Gold,
-			TargetGold: in.TargetGold,
-			Power:      in.Power,
-			TradeID:    in.TradeId,
-			K:          int(in.K),
-			Season:     in.Season,
-			DefPower:   in.DefPower,
-			BattleID:   in.BattleId,
+			Seq:        cmd.Seq,
+			PlayerID:   cmd.PlayerId,
+			Target:     cmd.TargetId,
+			Action:     cmd.Action,
+			Gold:       cmd.Gold,
+			TargetGold: cmd.TargetGold,
+			Power:      cmd.Power,
+			TradeID:    cmd.TradeId,
+			K:          int(cmd.K),
+			Season:     cmd.Season,
+			DefPower:   cmd.DefPower,
+			BattleID:   cmd.BattleId,
 		}
 		if req.PlayerID == 0 {
 			req.PlayerID = sess.PlayerID
 		}
 		if req.PlayerID != sess.PlayerID {
-			return marshalPlayerResponse(&playerv1.Response{Error: "player mismatch"})
+			return marshalResponse(&worldv1.Response{Error: "player mismatch"})
 		}
-		data, herr := h.Handle(ctx, req)
-		resp := &playerv1.Response{Ok: herr == nil}
+		resp, herr := h.Handle(ctx, req)
 		if herr != nil {
-			resp.Error = herr.Error()
-		} else if data != nil {
-			b, err := json.Marshal(data)
-			if err != nil {
-				return nil, fmt.Errorf("marshal data: %w", err)
-			}
-			resp.Data = b
+			resp = &worldv1.Response{Error: herr.Error()}
 		}
-		return marshalPlayerResponse(resp)
+		if resp == nil {
+			resp = &worldv1.Response{}
+		}
+		return marshalResponse(resp)
 	}
 }
 
-func marshalPlayerResponse(resp *playerv1.Response) ([]byte, error) {
-	b, err := proto.Marshal(resp)
-	if err != nil {
-		return nil, fmt.Errorf("marshal response: %w", err)
-	}
-	return b, nil
+func marshalResponse(resp *worldv1.Response) ([]byte, error) {
+	return proto.Marshal(resp)
 }

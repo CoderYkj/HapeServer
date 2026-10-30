@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"hapeserver/internal/link"
+	"hapeserver/internal/protocol/worldv1"
 	"hapeserver/internal/world"
 )
 
@@ -74,7 +76,6 @@ func (r *TCPRemote) pick(pid uint64) *tcpSlot {
 	if len(r.slots) == 0 {
 		return nil
 	}
-	// Knuth multiplicative hash; stable while the pool size is unchanged.
 	idx := int((pid * 2654435761) % uint64(len(r.slots)))
 	return r.slots[idx]
 }
@@ -119,42 +120,33 @@ func (r *TCPRemote) call(ctx context.Context, pid uint64, payload []byte) ([]byt
 	return data, nil
 }
 
-// Handle implements gateway.Handler.
-func (r *TCPRemote) Handle(ctx context.Context, req world.Request) (any, error) {
-	payload, _ := json.Marshal(req)
+// Handle implements gateway.Handler over the typed world link.
+func (r *TCPRemote) Handle(ctx context.Context, req world.Request) (*worldv1.Response, error) {
+	cmd := &worldv1.Command{
+		Seq:        req.Seq,
+		PlayerId:   req.PlayerID,
+		Action:     req.Action,
+		TargetId:   req.Target,
+		Gold:       req.Gold,
+		TargetGold: req.TargetGold,
+		Power:      req.Power,
+		TradeId:    req.TradeID,
+		K:          int32(req.K),
+		Season:     req.Season,
+		DefPower:   req.DefPower,
+		BattleId:   req.BattleID,
+	}
+	payload, err := proto.Marshal(cmd)
+	if err != nil {
+		return nil, err
+	}
 	data, err := r.call(ctx, req.PlayerID, payload)
 	if err != nil {
 		return nil, err
 	}
-	var out struct {
-		OK    bool            `json:"ok"`
-		Data  json.RawMessage `json:"data"`
-		Error string          `json:"error"`
-	}
-	if err := json.Unmarshal(data, &out); err != nil {
+	var resp worldv1.Response
+	if err := proto.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
-	if !out.OK {
-		return nil, errors.New(out.Error)
-	}
-	return out.Data, nil
-}
-
-// State implements StateProvider for resume/push.
-func (r *TCPRemote) State(id uint64) (world.PlayerState, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	payload, _ := json.Marshal(world.Request{PlayerID: id, Action: "state"})
-	data, err := r.call(ctx, id, payload)
-	if err != nil {
-		return world.PlayerState{}, false
-	}
-	var out struct {
-		OK   bool              `json:"ok"`
-		Data world.PlayerState `json:"data"`
-	}
-	if err := json.Unmarshal(data, &out); err != nil || !out.OK {
-		return world.PlayerState{}, false
-	}
-	return out.Data, true
+	return &resp, nil
 }

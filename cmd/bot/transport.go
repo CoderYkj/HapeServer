@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +10,7 @@ import (
 
 	"hapeserver/internal/link"
 	"hapeserver/internal/protocol/playerv1"
+	"hapeserver/internal/protocol/worldv1"
 )
 
 type transport struct {
@@ -26,20 +26,22 @@ func dialTCP(addr string, pid uint64) (*transport, error) {
 	return &transport{c: c, token: fmt.Sprintf("dev:1:%d", pid)}, nil
 }
 
-func (t *transport) do(req apiRequest) (json.RawMessage, error) {
+func (t *transport) do(req apiRequest) (*worldv1.Response, error) {
 	in := &playerv1.Request{
-		Token:      t.token,
-		PlayerId:   req.PlayerID,
-		TargetId:   req.Target,
-		Action:     req.Action,
-		Gold:       req.Gold,
-		TargetGold: req.TargetGold,
-		Power:      req.Power,
-		TradeId:    req.TradeID,
-		K:          int32(req.K),
-		Season:     req.Season,
-		DefPower:   req.DefPower,
-		BattleId:   req.BattleID,
+		Token: t.token,
+		Command: &worldv1.Command{
+			PlayerId:   req.PlayerID,
+			TargetId:   req.Target,
+			Action:     req.Action,
+			Gold:       req.Gold,
+			TargetGold: req.TargetGold,
+			Power:      req.Power,
+			TradeId:    req.TradeID,
+			K:          int32(req.K),
+			Season:     req.Season,
+			DefPower:   req.DefPower,
+			BattleId:   req.BattleID,
+		},
 	}
 	body, err := proto.Marshal(in)
 	if err != nil {
@@ -51,14 +53,14 @@ func (t *transport) do(req apiRequest) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out playerv1.Response
+	var out worldv1.Response
 	if err := proto.Unmarshal(data, &out); err != nil {
 		return nil, err
 	}
 	if !out.Ok {
 		return nil, fmt.Errorf("%s", out.Error)
 	}
-	return out.Data, nil
+	return &out, nil
 }
 
 func (t *transport) close() { _ = t.c.Close() }
@@ -77,19 +79,17 @@ func tradePeers(a, b uint64) error {
 	ta := va.(*transport)
 	tb := vb.(*transport)
 
-	data, err := ta.do(apiRequest{PlayerID: a, Target: b, Action: "trade_create", Gold: 1, TargetGold: 0})
+	resp, err := ta.do(apiRequest{PlayerID: a, Target: b, Action: "trade_create", Gold: 1, TargetGold: 0})
 	if err != nil {
 		return fmt.Errorf("create: %w", err)
 	}
-	var tr struct {
-		ID string `json:"_id"`
+	id := resp.GetTrade().GetId()
+	if id == "" {
+		return fmt.Errorf("create: empty trade id")
 	}
-	if err := json.Unmarshal(data, &tr); err != nil || tr.ID == "" {
-		return fmt.Errorf("create: bad trade id")
-	}
-	if _, err := tb.do(apiRequest{PlayerID: b, Action: "trade_accept", TradeID: tr.ID}); err != nil {
+	if _, err := tb.do(apiRequest{PlayerID: b, Action: "trade_accept", TradeID: id}); err != nil {
 		return err
 	}
-	_, err = ta.do(apiRequest{PlayerID: a, Action: "trade_settle", TradeID: tr.ID})
+	_, err = ta.do(apiRequest{PlayerID: a, Action: "trade_settle", TradeID: id})
 	return err
 }

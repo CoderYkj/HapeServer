@@ -2,29 +2,12 @@ syntax = "proto3";
 
 package hape.player.v1;
 
+import "proto/world/v1/world.proto";
+
 option go_package = "hapeserver/internal/protocol/playerv1;playerv1";
 
-// Request is one player command. token is a dev token in P0.
+// Request is one authenticated player command.
 message Request {
   string token = 1;
-  uint64 seq = 2;
-  uint64 player_id = 3;
-  string action = 4;
-  uint64 target_id = 5;
-  int64 gold = 6;
-  int64 target_gold = 7;
-  int64 power = 8;
-  string trade_id = 9;
-  int32 k = 10;
-  uint32 season = 11;
-  int64 def_power = 12;
-  string battle_id = 13;
-}
-
-// Response carries a JSON payload in data so world domain types stay decoupled
-// from the player wire schema.
-message Response {
-  bool ok = 1;
-  string error = 2;
-  bytes data = 3;
+  hape.world.v1.Command command = 2;
 }

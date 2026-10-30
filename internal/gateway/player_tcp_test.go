@@ -9,13 +9,14 @@ import (
 
 	"hapeserver/internal/link"
 	"hapeserver/internal/protocol/playerv1"
+	"hapeserver/internal/protocol/worldv1"
 	"hapeserver/internal/world"
 )
 
 type echoHandler struct{}
 
-func (echoHandler) Handle(_ context.Context, req world.Request) (any, error) {
-	return map[string]any{"action": req.Action, "player": req.PlayerID}, nil
+func (echoHandler) Handle(_ context.Context, req world.Request) (*worldv1.Response, error) {
+	return &worldv1.Response{Ok: true, Result: &worldv1.Response_State{State: &worldv1.PlayerState{PlayerId: req.PlayerID}}}, nil
 }
 
 func startPlayerTCP(t *testing.T) *link.Server {
@@ -29,7 +30,7 @@ func startPlayerTCP(t *testing.T) *link.Server {
 	return srv
 }
 
-func callTCP(t *testing.T, srv *link.Server, in *playerv1.Request) *playerv1.Response {
+func callTCP(t *testing.T, srv *link.Server, in *playerv1.Request) *worldv1.Response {
 	t.Helper()
 	c, err := link.Dial(srv.Addr(), time.Second)
 	if err != nil {
@@ -44,7 +45,7 @@ func callTCP(t *testing.T, srv *link.Server, in *playerv1.Request) *playerv1.Res
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out playerv1.Response
+	var out worldv1.Response
 	if err := proto.Unmarshal(data, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func callTCP(t *testing.T, srv *link.Server, in *playerv1.Request) *playerv1.Res
 
 func TestPlayerTCPCommand(t *testing.T) {
 	srv := startPlayerTCP(t)
-	resp := callTCP(t, srv, &playerv1.Request{Token: "dev:1:7", PlayerId: 7, Action: "rank"})
+	resp := callTCP(t, srv, &playerv1.Request{Token: "dev:1:7", Command: &worldv1.Command{PlayerId: 7, Action: "rank"}})
 	if !resp.Ok {
 		t.Fatalf("resp = %+v", resp)
 	}
@@ -61,7 +62,7 @@ func TestPlayerTCPCommand(t *testing.T) {
 
 func TestPlayerTCPAuth(t *testing.T) {
 	srv := startPlayerTCP(t)
-	resp := callTCP(t, srv, &playerv1.Request{Token: "bad", PlayerId: 1, Action: "rank"})
+	resp := callTCP(t, srv, &playerv1.Request{Token: "bad", Command: &worldv1.Command{PlayerId: 1, Action: "rank"}})
 	if resp.Ok || resp.Error != "unauthorized" {
 		t.Fatalf("resp = %+v", resp)
 	}
@@ -69,7 +70,7 @@ func TestPlayerTCPAuth(t *testing.T) {
 
 func TestPlayerTCPMismatch(t *testing.T) {
 	srv := startPlayerTCP(t)
-	resp := callTCP(t, srv, &playerv1.Request{Token: "dev:1:7", PlayerId: 8, Action: "rank"})
+	resp := callTCP(t, srv, &playerv1.Request{Token: "dev:1:7", Command: &worldv1.Command{PlayerId: 8, Action: "rank"}})
 	if resp.Ok || resp.Error != "player mismatch" {
 		t.Fatalf("resp = %+v", resp)
 	}
