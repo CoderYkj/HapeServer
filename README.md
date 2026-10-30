@@ -117,7 +117,7 @@ test/             压测与模拟（占位）
 
 - 独立仓库：`https://github.com/CoderYkj/HapeGateway`（本地 `D:\HapeGateway`），module `github.com/CoderYkj/HapeGateway`。
 - 包含：`link` 帧协议、`gateway` 玩家连接/推送/池化 backend、`cmd/gateway`；protobuf 契约来自 `HapeProto`。
-- HapeServer 通过 `replace github.com/CoderYkj/HapeGateway => ../HapeGateway` 复用；发布 tag 后可去掉 replace。
+- 本地开发用不提交的 `go.work` 指向 `../HapeGateway` / `../HapeProto`；CI 直接走 proxy，依赖 `v0.1.0` tag。
 - 启动：`go run github.com/CoderYkj/HapeGateway/cmd/gateway -addr :9001 -world-tcp 127.0.0.1:9000`。
 
 ## HapeProto 共享契约
@@ -126,6 +126,12 @@ test/             压测与模拟（占位）
 - 包含 `playerv1`（玩家 wire）与 `worldv1`（world Command/Response/StateDelta）。
 - HapeGateway 与 HapeServer 都依赖它；HapeServer 当前通过 `replace github.com/CoderYkj/HapeProto => ../HapeProto` 联调。
 - 发布 tag 后，两个仓库可各自升级 proto 版本，不再互相绑定。
+
+## 模块消费
+
+- 本地开发：仓库根目录的 `go.work`（已 gitignore）同时 use `HapeServer`、`../HapeGateway`、`../HapeProto`。
+- CI：不提交 `go.work`，直接按 `go.mod` 的 `v0.1.0` 从 GOPROXY 拉取两个模块。
+- 发版顺序：先 `HapeProto v0.1.0`，再 `HapeGateway v0.1.0`，最后 HapeServer 引用。
 
 ## 快速开始
 

@@ -3,8 +3,8 @@ module hapeserver
 go 1.27.2
 
 require (
-	github.com/CoderYkj/HapeGateway v0.0.0
-	github.com/CoderYkj/HapeProto v0.0.0
+	github.com/CoderYkj/HapeGateway v0.1.0
+	github.com/CoderYkj/HapeProto v0.1.0
 	github.com/nats-io/nats.go v1.55.0
 	github.com/tochemey/goakt/v4 v4.6.4
 	go.mongodb.org/mongo-driver v1.17.4
@@ -77,7 +77,3 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )
-
-replace github.com/CoderYkj/HapeGateway => ../HapeGateway
-
-replace github.com/CoderYkj/HapeProto => ../HapeProto

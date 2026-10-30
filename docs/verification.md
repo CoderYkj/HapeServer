@@ -1092,3 +1092,42 @@ hapeserver:  go vet ./... / go test ./...  PASS
   100 bot / 10s：1451 请求，0 错误，p99 709µs
   ```
 - GitHub push：HapeGateway 仍受本机到 GitHub 的网络波动影响；HapeProto 首次 push 也遇到连接重置。两个仓库的本地提交已就绪，网络恢复后补推。
+## 模块消费：go.work + GOPROXY（2026-10-31）
+
+### 本地开发
+
+- `HapeServer/go.work`（不提交，已 gitignore）：
+  ```
+  use (
+      .
+      ../HapeGateway
+      ../HapeProto
+  )
+  replace github.com/CoderYkj/HapeGateway v0.1.0 => ../HapeGateway
+  replace github.com/CoderYkj/HapeProto v0.1.0 => ../HapeProto
+  ```
+- `HapeGateway/go.work` 同理只指向 `../HapeProto`。
+- `go.mod` 已移除所有 `replace`，只保留 `v0.1.0` 依赖：
+  ```
+  require github.com/CoderYkj/HapeGateway v0.1.0
+  require github.com/CoderYkj/HapeProto   v0.1.0
+  ```
+- 使用 **version-specific replace** 是因为 go.work 不允许对 workspace 模块做 all-version replace；指定 `v0.1.0` 可正常工作。
+
+### CI
+
+- 不提交 `go.work`；`go build/test` 直接按 go.mod 的 `v0.1.0` 从 GOPROXY 拉取。
+- 前置条件：`HapeProto` 和 `HapeGateway` 已推送并带 `v0.1.0` tag。
+
+### 验证
+
+```text
+GOPROXY=off（强制只用本地 workspace）
+HapeGateway: go test ./...  PASS
+HapeServer:  go test ./...  PASS
+100 bot / 10s：1451 请求，0 错误，p99 709µs
+```
+
+### 待完成
+
+- 两个仓库的 v0.1.0 tag 和最新提交仍受本机到 GitHub 的网络波动影响，需在网络恢复后 push。
