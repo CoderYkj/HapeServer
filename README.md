@@ -107,7 +107,8 @@ internal/
   rank/           RankKey / RankOrder / 榜单
   trade/          交易状态机
   observability/  指标
-../HapeGateway/   独立 gateway 模块（github.com/CoderYkj/HapeGateway）\n../HapeProto/     共享 protobuf 契约（github.com/CoderYkj/HapeProto）
+../HapeGateway/   独立 gateway 模块（github.com/CoderYkj/HapeGateway）
+../HapeProto/     共享 protobuf 契约（github.com/CoderYkj/HapeProto）
 docs/             架构与 P0 计划
 deploy/k8s/       P1 部署清单（占位）
 test/             压测与模拟（占位）

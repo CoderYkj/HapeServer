@@ -1071,7 +1071,7 @@ hapeserver:  go vet ./... / go test ./...  PASS
 
 ### 待讨论
 
-模块消费方式仍未定：本地 `replace`、tagged module、git submodule、或再抽 `hapeproto`。CI 目前仍需两个仓库并排 checkout。
+模块消费方式后续已选择方案 C（共享 HapeProto）；本节保留为历史记录。
 ## 共享 HapeProto 模块（方案 C，2026-10-31）
 
 - 新增 `D:\HapeProto`，module `github.com/CoderYkj/HapeProto`：
@@ -1131,3 +1131,19 @@ HapeServer:  go test ./...  PASS
 ### 待完成
 
 - 两个仓库的 v0.1.0 tag 和最新提交仍受本机到 GitHub 的网络波动影响，需在网络恢复后 push。
+
+### 发布结果（2026-10-31）
+
+- `github.com/CoderYkj/HapeProto`：仓库已创建，默认分支 `main`，内容通过 GitHub Contents API 上传，tag `v0.1.0` 已创建。
+- `github.com/CoderYkj/HapeGateway`：`master` 已推送到 `193021b`，tag `v0.1.0` 已推送。
+- HapeServer 的 `go.mod` 只保留：
+  ```
+  require github.com/CoderYkj/HapeGateway v0.1.0
+  require github.com/CoderYkj/HapeProto   v0.1.0
+  ```
+- CI 形态验证（`GOWORK=off`，`GOPROXY=https://goproxy.cn,direct`）：
+  ```text
+  HapeGateway: go test ./...  PASS
+  HapeServer:  go build ./... PASS
+  ```
+- 本地开发继续使用不提交的 `go.work`（version-specific replace），不进入 CI。
