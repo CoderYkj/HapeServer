@@ -65,3 +65,33 @@ jobs:
           MONGO_REPLSET_ADMIN_URL: mongodb://127.0.0.1:27018/?directConnection=true
           MONGO_REPLSET_HOST: 127.0.0.1:27018
         run: go test ./internal/trade -run TestMongoReplicaSetTransaction -v -count=1
+
+  wal-r3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.2"
+      - name: Start NATS R3
+        run: docker compose -f deploy/nats/docker-compose.yml up -d
+      - name: Wait for cluster
+        run: |
+          for i in $(seq 1 30); do
+            ok=1
+            for p in 4221 4222 4223; do
+              timeout 1 bash -c "</dev/tcp/127.0.0.1/$p" 2>/dev/null || ok=0
+            done
+            if [ "$ok" = "1" ]; then sleep 5; exit 0; fi
+            sleep 1
+          done
+          docker compose -f deploy/nats/docker-compose.yml logs
+          exit 1
+      - name: R3 WAL
+        env:
+          NATS_URL: nats://127.0.0.1:4221,nats://127.0.0.1:4222,nats://127.0.0.1:4223
+          NATS_REPLICAS: "3"
+        run: go test ./internal/wal -run TestJetStreamRoundTrip -v -count=1
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f deploy/nats/docker-compose.yml logs

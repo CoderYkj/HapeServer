@@ -74,6 +74,8 @@
 | 跨进程 RF=3 | 完成 | peer 复制 + token；owner 本地丢失可从 peer 恢复 |
 | 快照最高 offset | 完成 | 多写者下按 WAL offset 选最新，不按文件时间 |
 | WAL R3 | 完成 | 3 节点 JetStream，walReplicas=3；单节点故障可写/可恢复 |
+| Prometheus 导出 | 完成 | /metrics/prometheus 文本格式 |
+| NATS R3 模板 | 完成 | deploy/nats/docker-compose.yml + CI wal-r3 job |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |

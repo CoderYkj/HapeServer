@@ -1,0 +1,31 @@
+name: hape-nats
+
+services:
+  n1:
+    image: nats:2.10
+    command: ["-js", "-sd", "/data", "-cluster_name", "hape", "-cluster", "nats://0.0.0.0:6222", "--routes", "nats://n2:6222,nats://n3:6222"]
+    ports:
+      - "4221:4222"
+    volumes:
+      - n1:/data
+
+  n2:
+    image: nats:2.10
+    command: ["-js", "-sd", "/data", "-cluster_name", "hape", "-cluster", "nats://0.0.0.0:6222", "--routes", "nats://n1:6222,nats://n3:6222"]
+    ports:
+      - "4222:4222"
+    volumes:
+      - n2:/data
+
+  n3:
+    image: nats:2.10
+    command: ["-js", "-sd", "/data", "-cluster_name", "hape", "-cluster", "nats://0.0.0.0:6222", "--routes", "nats://n1:6222,nats://n2:6222"]
+    ports:
+      - "4223:4222"
+    volumes:
+      - n3:/data
+
+volumes:
+  n1:
+  n2:
+  n3:

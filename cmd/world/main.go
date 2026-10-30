@@ -145,6 +145,10 @@ func main() {
 	if cfg.Storage.ReplicaToken != "" {
 		mux.HandleFunc("/internal/snapshot", snapshot.ServeReplica(snapSet.Primary(), cfg.Storage.ReplicaToken))
 	}
+	mux.HandleFunc("/metrics/prometheus", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		_, _ = w.Write([]byte(svc.Metrics().Prometheus()))
+	})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(svc.Metrics().Snapshot())

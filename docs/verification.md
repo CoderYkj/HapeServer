@@ -749,3 +749,32 @@ state.player1.gold = 1050
 - 三个 NATS 节点仍在同一台机器；生产需 3 台/3 AZ，并配置 TLS 与鉴权。
 - R3 只能容忍 1 个节点故障；2 个节点丢失时 stream 不可写。
 - 本地验证未把 NATS 集群配置纳入仓库（用临时 conf），CI 暂未加 3 节点 NATS job。
+## 增量验证：Prometheus 导出与 NATS R3 模板（2026-10-30）
+
+### Prometheus
+
+- `Metrics.Prometheus()` 输出 text exposition：`_total` 后缀为 counter，其余为 gauge，按名称排序。
+- `cmd/world` 新增 `GET /metrics/prometheus`；原 JSON `/metrics` 保留。
+- 示例：
+
+```text
+# TYPE commands_total counter
+commands_total 4
+# TYPE reconcile_last_touched gauge
+reconcile_last_touched 0
+# TYPE reconcile_runs_total counter
+reconcile_runs_total 1
+```
+
+- 单测 `TestPrometheus` 检查 counter/gauge 类型与值。
+
+### NATS R3 模板
+
+- `deploy/nats/docker-compose.yml`：3 个 `nats:2.10` 节点，独立数据卷，cluster name `hape`，端口 4221–4223。
+- `deploy/nats/README.md`：本地启动、R3 测试命令、K8s StatefulSet 的 routes 写法。
+- CI 新增 `wal-r3` job：compose 起 3 节点 → 等端口 → `NATS_REPLICAS=3` 跑 `TestJetStreamRoundTrip`。
+
+### 说明
+
+- 本机没有 Docker，compose 与 CI job 未在本机执行；R3 行为已用本地 3 个 `nats-server` 进程验证（见上一节）。
+- Prometheus 端点未做鉴权，生产应放内网或加 basic auth/ingress 限制。
