@@ -13,7 +13,9 @@
     "walKind": "memory",
     "natsUrl": "nats://127.0.0.1:4222",
     "walStream": "WAL_1",
-    "walSubject": "wal.1"
+    "walSubject": "wal.1",
+    "mongoUrl": "",
+    "mongoDb": "hapeserver"
   },
   "trade": {
     "timeoutSeconds": 600,

@@ -216,3 +216,25 @@ p50=2.03ms p99=30.26ms
 
 - 交易文档仍在 `trade.MemoryStore`，进程重启后文档丢失；玩家 escrow 效果由 WAL 回放，但 trade 状态需要切 Mongo 才能闭环。
 - 快照每 10s 一次；两次快照之间的状态依赖 WAL，WAL 未做截断/轮转。
+## 增量验证：Mongo 选择 / 1k bot（2026-10-30）
+
+### Mongo 交易存储选择
+
+- `storage.mongoUrl` 非空时，`cmd/world` 用 `trade.OpenMongo` 打开 `trades` 集合；为空时回退 `trade.MemoryStore`。
+- 启动日志会打印 `trade store: mongodb db=...` 或 `trade store: memory (durability is dev-only)`。
+- 本机无 mongod，Mongo 分支只验证了编译与配置选择；集成用例 `TestMongoRepo` 仍需 `MONGO_URL`。
+
+### 1k bot 冒烟
+
+```text
+bots=1000 total=5001 ok=5001 err=0 err_rate=0.0000 p50=0us p99=780us
+```
+
+- 30s，HTTP API，world 与压测同机（i7-4980HQ），goakt v4.6.4。
+- 另一次 60s：11001 请求、0 错误、p99 约 3ms（旧格式）。
+- `p50=0us` 是因为本机时钟分辨率把亚微秒请求显示成 0，不是请求真的耗时 0；以 p99 为准。
+
+### 限制
+
+- HTTP 不是最终 WebSocket 网关；1k 是短时冒烟，不是 1h 验收。
+- 无 Mongo 实例，交易持久化分支未做真实集成。

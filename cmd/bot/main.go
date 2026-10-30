@@ -31,10 +31,11 @@ type apiResponse struct {
 }
 
 type stats struct {
-	ok  atomic.Int64
-	err atomic.Int64
-	mu  sync.Mutex
-	lat []time.Duration
+	ok      atomic.Int64
+	err     atomic.Int64
+	mu      sync.Mutex
+	lat     []int64
+	samples []string
 }
 
 func (s *stats) record(d time.Duration, err error) {
@@ -44,7 +45,10 @@ func (s *stats) record(d time.Duration, err error) {
 		s.ok.Add(1)
 	}
 	s.mu.Lock()
-	s.lat = append(s.lat, d)
+	s.lat = append(s.lat, d.Microseconds())
+	if err != nil && len(s.samples) < 10 {
+		s.samples = append(s.samples, err.Error())
+	}
 	s.mu.Unlock()
 }
 
@@ -65,6 +69,9 @@ func main() {
 		IdleConnTimeout:     60 * time.Second,
 	}
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	if err := waitReady(client, *base, 15*time.Second); err != nil {
+		panic(err)
+	}
 	st := &stats{}
 
 	stop := make(chan struct{})
@@ -76,6 +83,7 @@ func main() {
 		go func(id int) {
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(int64(id)))
+			time.Sleep(time.Duration(rng.Intn(5000)) * time.Millisecond)
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			peer := uint64(id%*n + 1)
@@ -118,13 +126,16 @@ func main() {
 		return
 	}
 	st.mu.Lock()
-	lats := append([]time.Duration(nil), st.lat...)
+	lats := append([]int64(nil), st.lat...)
 	st.mu.Unlock()
 	sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
 	p50 := lats[len(lats)*50/100]
 	p99 := lats[len(lats)*99/100]
-	fmt.Printf("bots=%d total=%d ok=%d err=%d err_rate=%.4f p50=%s p99=%s\n",
+	fmt.Printf("bots=%d total=%d ok=%d err=%d err_rate=%.4f p50=%dus p99=%dus\n",
 		*n, total, ok, bad, float64(bad)/float64(total), p50, p99)
+	for _, s := range st.samples {
+		fmt.Printf("err-sample: %s\n", s)
+	}
 }
 
 func call(c *http.Client, base string, req apiRequest) error {
@@ -170,4 +181,19 @@ func trade(c *http.Client, base string, a, b uint64) error {
 		return err
 	}
 	return call(c, base, apiRequest{PlayerID: a, Action: "trade_settle", TradeID: tr.ID})
+}
+
+func waitReady(c *http.Client, base string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := c.Get(base + "/healthz")
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("world not ready after %s", timeout)
 }

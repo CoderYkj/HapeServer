@@ -32,6 +32,8 @@ type Storage struct {
 	NATSURL     string `json:"natsUrl"`
 	WALStream   string `json:"walStream"`
 	WALSubject  string `json:"walSubject"`
+	MongoURL    string `json:"mongoUrl"` // empty = in-memory trade store
+	MongoDB     string `json:"mongoDb"`
 }
 
 type Trade struct {
@@ -55,6 +57,7 @@ func Defaults() Config {
 			NATSURL:     "nats://127.0.0.1:4222",
 			WALStream:   "WAL_1",
 			WALSubject:  "wal.1",
+			MongoDB:     "hapeserver",
 		},
 		Trade: Trade{TimeoutSeconds: 600, MaxDaily: 20},
 		Reset: Reset{SweepHours: 24},

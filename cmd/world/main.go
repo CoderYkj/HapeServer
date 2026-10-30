@@ -68,7 +68,20 @@ func main() {
 		walLog = wal.NewMemory()
 	}
 
-	svc := world.NewService(sys, trade.NewMemoryStore(), walLog)
+	var tradeStore trade.Store = trade.NewMemoryStore()
+	if cfg.Storage.MongoURL != "" {
+		repo, err := trade.OpenMongo(ctx, cfg.Storage.MongoURL, cfg.Storage.MongoDB)
+		if err != nil {
+			log.Fatalf("mongo trade store: %v", err)
+		}
+		defer func() { _ = repo.Close(context.Background()) }()
+		tradeStore = repo
+		log.Printf("trade store: mongodb db=%s", cfg.Storage.MongoDB)
+	} else {
+		log.Printf("trade store: memory (durability is dev-only)")
+	}
+
+	svc := world.NewService(sys, tradeStore, walLog)
 	last, err := recovery.Recover(store, walLog, cfg.World.ID, svc)
 	if err != nil {
 		log.Fatalf("recover: %v", err)

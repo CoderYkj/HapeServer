@@ -46,6 +46,8 @@
 | H02 世界 HTTP API | 完成 | /api/command、/api/rank；启动恢复快照 |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
+| Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |
+| H05 1k bot | 冒烟完成 | 1000 bot / 30s：5001 请求、0 错误、p99 780µs |
 
 ## 目录
 
