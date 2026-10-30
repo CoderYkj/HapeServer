@@ -90,6 +90,9 @@ func (p *PlayerActor) Receive(ctx actor.Context, env *actor.Envelope) {
 			return
 		}
 		p.State.SeenOps = append(p.State.SeenOps, env.OpID)
+		if len(p.State.SeenOps) > maxSeenOps {
+			p.State.SeenOps = p.State.SeenOps[len(p.State.SeenOps)-maxSeenOps:]
+		}
 		resp := map[string]any{"ok": true}
 		switch cmd.Op {
 		case "grant":
@@ -177,6 +180,8 @@ func (r *RegionActor) Receive(_ actor.Context, env *actor.Envelope) {
 		}
 	}
 }
+
+const maxSeenOps = 1024
 
 // ErrActiveEscrow blocks a season reset while assets are still locked.
 var ErrActiveEscrow = errors.New("active escrow")

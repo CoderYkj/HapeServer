@@ -619,6 +619,12 @@ func cloneState(st PlayerState) PlayerState {
 	return out
 }
 
+func cloneHistoryState(st PlayerState) PlayerState {
+	out := cloneState(st)
+	out.SeenOps = nil
+	return out
+}
+
 func (s *Service) captureState(pid uint64) {
 	if pid == 0 {
 		return
@@ -629,7 +635,7 @@ func (s *Service) captureState(pid uint64) {
 	if p == nil {
 		return
 	}
-	cur := cloneState(p.State)
+	cur := cloneHistoryState(p.State)
 	h := s.stateHist[pid]
 	if len(h) > 0 && h[len(h)-1].Version == cur.Version {
 		return
