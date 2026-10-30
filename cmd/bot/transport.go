@@ -10,8 +10,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/CoderYkj/HapeGateway/link"
-	"github.com/CoderYkj/HapeGateway/protocol/playerv1"
-	"github.com/CoderYkj/HapeGateway/protocol/worldv1"
+	"github.com/CoderYkj/HapeProto/playerv1"
+	"github.com/CoderYkj/HapeProto/worldv1"
 )
 
 type transport struct {

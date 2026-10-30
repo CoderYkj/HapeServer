@@ -107,7 +107,7 @@ internal/
   rank/           RankKey / RankOrder / 榜单
   trade/          交易状态机
   observability/  指标
-../HapeGateway/   独立 gateway 模块（github.com/CoderYkj/HapeGateway）
+../HapeGateway/   独立 gateway 模块（github.com/CoderYkj/HapeGateway）\n../HapeProto/     共享 protobuf 契约（github.com/CoderYkj/HapeProto）
 docs/             架构与 P0 计划
 deploy/k8s/       P1 部署清单（占位）
 test/             压测与模拟（占位）
@@ -116,9 +116,16 @@ test/             压测与模拟（占位）
 ## Gateway 独立模块
 
 - 独立仓库：`https://github.com/CoderYkj/HapeGateway`（本地 `D:\HapeGateway`），module `github.com/CoderYkj/HapeGateway`。
-- 包含：`link` 帧协议、`protocol/playerv1` + `protocol/worldv1`、`gateway` 玩家连接/推送/池化 backend、`cmd/gateway`。
+- 包含：`link` 帧协议、`gateway` 玩家连接/推送/池化 backend、`cmd/gateway`；protobuf 契约来自 `HapeProto`。
 - HapeServer 通过 `replace github.com/CoderYkj/HapeGateway => ../HapeGateway` 复用；发布 tag 后可去掉 replace。
 - 启动：`go run github.com/CoderYkj/HapeGateway/cmd/gateway -addr :9001 -world-tcp 127.0.0.1:9000`。
+
+## HapeProto 共享契约
+
+- 仓库：`github.com/CoderYkj/HapeProto`（本地 `D:\HapeProto`），module `github.com/CoderYkj/HapeProto`。
+- 包含 `playerv1`（玩家 wire）与 `worldv1`（world Command/Response/StateDelta）。
+- HapeGateway 与 HapeServer 都依赖它；HapeServer 当前通过 `replace github.com/CoderYkj/HapeProto => ../HapeProto` 联调。
+- 发布 tag 后，两个仓库可各自升级 proto 版本，不再互相绑定。
 
 ## 快速开始
 

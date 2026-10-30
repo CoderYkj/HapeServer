@@ -1072,3 +1072,23 @@ hapeserver:  go vet ./... / go test ./...  PASS
 ### 待讨论
 
 模块消费方式仍未定：本地 `replace`、tagged module、git submodule、或再抽 `hapeproto`。CI 目前仍需两个仓库并排 checkout。
+## 共享 HapeProto 模块（方案 C，2026-10-31）
+
+- 新增 `D:\HapeProto`，module `github.com/CoderYkj/HapeProto`：
+  - `playerv1`：玩家 TCP wire。
+  - `worldv1`：world Command/Response/StateDelta。
+  - `proto/`：schema 源文件。
+- HapeGateway：
+  - 删除本仓 `proto/`、`protocol/`。
+  - 依赖 `github.com/CoderYkj/HapeProto`（本地 `replace => ../HapeProto`）。
+- HapeServer：
+  - 依赖 `github.com/CoderYkj/HapeGateway` + `github.com/CoderYkj/HapeProto`。
+  - `internal/world`、`cmd/bot` 只 import `HapeProto` 的 wire 类型。
+- 验证：
+  ```text
+  HapeProto:   go test ./...  PASS
+  HapeGateway: go test ./...  PASS
+  HapeServer:  go test ./...  PASS
+  100 bot / 10s：1451 请求，0 错误，p99 709µs
+  ```
+- GitHub push：HapeGateway 仍受本机到 GitHub 的网络波动影响；HapeProto 首次 push 也遇到连接重置。两个仓库的本地提交已就绪，网络恢复后补推。
