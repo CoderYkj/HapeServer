@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"hapeserver/internal/config"
-	"hapeserver/internal/gateway"
 	"hapeserver/internal/recovery"
 	"hapeserver/internal/runtime"
 	"hapeserver/internal/snapshot"
@@ -94,7 +93,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/ws", gateway.NewWS(svc))
 	mux.HandleFunc("/api/command", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

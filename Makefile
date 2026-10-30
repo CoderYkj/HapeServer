@@ -19,7 +19,7 @@ run-world:
 	go run ./cmd/world -config configs/default.json
 
 run-gateway:
-	go run ./cmd/gateway -config configs/default.json
+	go run ./cmd/gateway -world http://127.0.0.1:8080 -addr :8081
 
 compose-up:
 	docker compose up -d

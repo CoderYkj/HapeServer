@@ -377,3 +377,14 @@ world :18080 + gateway :18081
 
 - world 目前仍保留 `/ws`（向后兼容）；下一轮可以移除，强制所有客户端走 gateway。
 - gateway 到 world 是一次 HTTP 往返；P1 可换 gRPC/长连接。
+## 增量验证：world 移除 WS 入口（2026-10-30）
+
+- `cmd/world` 不再注册 `/ws`，只保留 `/api/command`、`/api/rank`、`/healthz` 作为内部接口。
+- 所有 WS 客户端必须走 `cmd/gateway`；HTTP 客户端可以直连 world，也可以走 gateway 的 ReverseProxy。
+- 冒烟：`GET world:18080/ws` 返回 404；gateway:18081 跑 100 WS bot / 10s：
+
+```text
+100 bot：1451 请求，0 错误，p99 1256µs
+```
+
+- README 的快速开始已改为 world + gateway 两步，bot 默认走 gateway。
