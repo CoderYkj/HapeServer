@@ -284,3 +284,29 @@ func TestReconcileResumesSettling(t *testing.T) {
 		t.Fatalf("balances = %d,%d", esc.balance[1], esc.balance[2])
 	}
 }
+
+func TestReconcileDetailedErrors(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, newMemEscrow())
+	ctx := context.Background()
+	tr, err := svc.Create(ctx, 1, 1, 1, 2, Assets{Gold: 10}, Assets{Gold: 0}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Accept(ctx, tr.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.trades[tr.ID].State = Settling
+	store.trades[tr.ID].Version = 3
+	store.failTransition = true
+	store.mu.Unlock()
+
+	res, err := svc.ReconcileDetailed(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Touched != 0 || len(res.Errors) != 1 {
+		t.Fatalf("result = %+v", res)
+	}
+}

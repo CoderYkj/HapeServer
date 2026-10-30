@@ -32,3 +32,12 @@ func TestResetSeason(t *testing.T) {
 		t.Fatalf("marches/queues not cleared: %+v %+v", p.State.Marches, p.State.Queues)
 	}
 }
+
+func TestSeasonReward(t *testing.T) {
+	cases := map[int]int64{1: 5000, 2: 2000, 10: 2000, 11: 1000, 100: 1000, 101: 500, 1000: 500, 1001: 100}
+	for rank, want := range cases {
+		if got := seasonReward(rank); got != want {
+			t.Fatalf("rank %d: got %d want %d", rank, got, want)
+		}
+	}
+}

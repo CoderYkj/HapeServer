@@ -150,31 +150,45 @@ func (s *Service) Cancel(ctx context.Context, tradeID string) error {
 	return s.store.Transition(ctx, tradeID, Refunding, Refunded, t.Version+1)
 }
 
+// ReconcileResult reports one reconciliation pass.
+type ReconcileResult struct {
+	Touched int
+	Errors  []string
+}
+
 // Reconcile resumes non-terminal trades: settling ones settle, expired ones
 // refund. It returns the number of trades it touched.
 func (s *Service) Reconcile(ctx context.Context, limit int64) (int, error) {
+	res, err := s.ReconcileDetailed(ctx, limit)
+	return res.Touched, err
+}
+
+// ReconcileDetailed is Reconcile plus per-trade failure details.
+func (s *Service) ReconcileDetailed(ctx context.Context, limit int64) (ReconcileResult, error) {
+	var res ReconcileResult
 	pending, err := s.store.ListPending(ctx, limit)
 	if err != nil {
-		return 0, err
+		return res, err
 	}
-	touched := 0
 	for i := range pending {
 		t := &pending[i]
 		if t.State == Settling {
 			if err := s.Settle(ctx, t.ID); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("%s settle: %v", t.ID, err))
 				continue
 			}
-			touched++
+			res.Touched++
 			continue
 		}
 		if s.now().UnixMilli() >= t.ExpireAt {
 			if err := s.Cancel(ctx, t.ID); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("%s cancel: %v", t.ID, err))
 				continue
 			}
-			touched++
+			res.Touched++
 		}
 	}
-	return touched, nil
+	return res, nil
 }
 
 // Get loads one trade.

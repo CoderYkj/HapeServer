@@ -43,6 +43,8 @@ type Service struct {
 	trade   *trade.Service
 	battles *battle.Service
 	metrics *observability.Metrics
+
+	reconcileErrs []string
 }
 
 // NewService wires the P0 subsystems together.
@@ -172,6 +174,65 @@ func (s *Service) SweepSeason(ctx context.Context, season uint32) (int, int) {
 		}
 	}
 	return reset, skipped
+}
+
+// seasonReward is the gold paid for a final rank.
+func seasonReward(rank int) int64 {
+	switch {
+	case rank == 1:
+		return 5000
+	case rank <= 10:
+		return 2000
+	case rank <= 100:
+		return 1000
+	case rank <= 1000:
+		return 500
+	default:
+		return 100
+	}
+}
+
+// SettleSeason resets stale players and pays rank rewards for the finished
+// season. It must be called before the new season's players are admitted.
+func (s *Service) SettleSeason(ctx context.Context, season uint32) (reset, rewarded, skipped int) {
+	tops := s.rank.TopK(10000)
+	rewards := make(map[uint64]int64, len(tops))
+	for i := range tops {
+		if tops[i].Power <= 0 {
+			continue
+		}
+		rewards[tops[i].PID] = seasonReward(i + 1)
+	}
+
+	s.SetSeason(season)
+	s.mu.Lock()
+	ids := make([]uint64, 0, len(s.players))
+	for id := range s.players {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+
+	for _, id := range ids {
+		ref, err := s.EnsurePlayer(ctx, id)
+		if err != nil {
+			continue
+		}
+		ok, err := s.resetPlayer(ctx, id, ref, season)
+		if errors.Is(err, ErrActiveEscrow) {
+			skipped++
+			continue
+		}
+		if err != nil || !ok {
+			continue
+		}
+		reset++
+		if r := rewards[id]; r > 0 {
+			if err := s.Grant(ctx, id, r); err == nil {
+				rewarded++
+			}
+		}
+	}
+	return reset, rewarded, skipped
 }
 
 // SetPower updates the player's power and the leaderboard.
@@ -374,13 +435,19 @@ func (s *Service) handle(ctx context.Context, req Request) (any, error) {
 		return s.battles.Submit(ctx, 1, s.CurrentSeason(), req.PlayerID, req.Target, req.Power, req.DefPower)
 	case "battle_get":
 		return s.battles.Get(ctx, req.BattleID)
+	case "battle_history":
+		limit := int64(req.K)
+		if limit <= 0 {
+			limit = 20
+		}
+		return s.battles.History(ctx, req.PlayerID, req.Season, limit)
 	case "season_reset":
 		season := req.Season
 		if season == 0 {
 			season = s.CurrentSeason() + 1
 		}
-		reset, skipped := s.SweepSeason(ctx, season)
-		return map[string]any{"season": season, "reset": reset, "skipped": skipped}, nil
+		reset, rewarded, skipped := s.SettleSeason(ctx, season)
+		return map[string]any{"season": season, "reset": reset, "rewarded": rewarded, "skipped": skipped}, nil
 	default:
 		return nil, fmt.Errorf("unknown action %q", req.Action)
 	}
@@ -494,13 +561,32 @@ func (e *escrowAdapter) Settle(ctx context.Context, pid uint64, tradeID string, 
 
 // Reconcile resumes non-terminal trades (settling or expired).
 func (s *Service) Reconcile(ctx context.Context, limit int64) (int, error) {
-	n, err := s.trade.Reconcile(ctx, limit)
+	res, err := s.trade.ReconcileDetailed(ctx, limit)
 	s.metrics.ReconcileRuns.Add(1)
 	if err != nil {
 		s.metrics.ReconcileErrors.Add(1)
-	} else {
-		s.metrics.ReconcileTouched.Add(uint64(n))
-		s.metrics.SetGauge("reconcile_last_touched", int64(n))
+		return 0, err
 	}
-	return n, err
+	s.metrics.ReconcileTouched.Add(uint64(res.Touched))
+	s.metrics.SetGauge("reconcile_last_touched", int64(res.Touched))
+	s.metrics.ReconcileErrors.Add(uint64(len(res.Errors)))
+	s.metrics.SetGauge("reconcile_last_error_count", int64(len(res.Errors)))
+	if len(res.Errors) > 0 {
+		s.mu.Lock()
+		s.reconcileErrs = append(s.reconcileErrs, res.Errors...)
+		if len(s.reconcileErrs) > 20 {
+			s.reconcileErrs = s.reconcileErrs[len(s.reconcileErrs)-20:]
+		}
+		s.mu.Unlock()
+	}
+	return res.Touched, nil
+}
+
+// ReconcileErrors returns the last reconciliation failures (newest last).
+func (s *Service) ReconcileErrors() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.reconcileErrs))
+	copy(out, s.reconcileErrs)
+	return out
 }

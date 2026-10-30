@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -47,6 +48,7 @@ func Resolve(attacker, defender uint64, ap, dp int64) uint64 {
 type Store interface {
 	Create(ctx context.Context, b *Battle) error
 	Get(ctx context.Context, id string) (*Battle, error)
+	ListByPlayer(ctx context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error)
 }
 
 // Memory is an in-memory store for P0.
@@ -123,4 +125,33 @@ func (s *Service) Submit(ctx context.Context, world, season uint32, attacker, de
 // Get loads one battle.
 func (s *Service) Get(ctx context.Context, id string) (*Battle, error) {
 	return s.store.Get(ctx, id)
+}
+
+// History returns a player's battle history, newest first.
+func (s *Service) History(ctx context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error) {
+	return s.store.ListByPlayer(ctx, playerID, season, limit)
+}
+
+// ListByPlayer returns a player's battles, newest first.
+func (s *Memory) ListByPlayer(_ context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Battle, 0)
+	for _, b := range s.m {
+		if b.Attacker != playerID && b.Defender != playerID {
+			continue
+		}
+		if season != 0 && b.Season != season {
+			continue
+		}
+		out = append(out, *b)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	if int64(len(out)) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }

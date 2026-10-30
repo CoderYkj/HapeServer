@@ -36,17 +36,19 @@ func OpenMongo(ctx context.Context, uri, db string) (*MongoStore, error) {
 			Options: options.Index().SetName("world_season_created"),
 		},
 		{
-			Keys:    bson.D{{Key: "attacker", Value: 1}, {Key: "createdAt", Value: -1}},
-			Options: options.Index().SetName("attacker_created"),
+			Keys:    bson.D{{Key: "attacker", Value: 1}, {Key: "season", Value: 1}, {Key: "createdAt", Value: -1}},
+			Options: options.Index().SetName("attacker_season_created"),
 		},
 		{
-			Keys:    bson.D{{Key: "defender", Value: 1}, {Key: "createdAt", Value: -1}},
-			Options: options.Index().SetName("defender_created"),
+			Keys:    bson.D{{Key: "defender", Value: 1}, {Key: "season", Value: 1}, {Key: "createdAt", Value: -1}},
+			Options: options.Index().SetName("defender_season_created"),
 		},
 	}); err != nil {
 		_ = client.Disconnect(ctx)
 		return nil, fmt.Errorf("battle mongo index: %w", err)
 	}
+	_, _ = coll.Indexes().DropOne(ctx, "attacker_created")
+	_, _ = coll.Indexes().DropOne(ctx, "defender_created")
 	return &MongoStore{client: client, coll: coll}, nil
 }
 
@@ -71,4 +73,27 @@ func (s *MongoStore) Get(ctx context.Context, id string) (*Battle, error) {
 		return nil, err
 	}
 	return &b, nil
+}
+
+// ListByPlayer returns a player's battles, newest first.
+func (s *MongoStore) ListByPlayer(ctx context.Context, playerID uint64, season uint32, limit int64) ([]Battle, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	filter := bson.M{"$or": []bson.M{{"attacker": playerID}, {"defender": playerID}}}
+	if season != 0 {
+		filter["season"] = season
+	}
+	cur, err := s.coll.Find(ctx, filter, options.Find().
+		SetSort(bson.D{{Key: "createdAt", Value: -1}}).
+		SetLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cur.Close(ctx) }()
+	var out []Battle
+	if err := cur.All(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

@@ -62,6 +62,9 @@
 | 3-shard Mongo | 完成 | mongos + 3 shard；	rades 按 _id 哈希；chunks 覆盖 3 shard |
 | 战斗持久化 | 完成 | Mongo attles 集合；重启后可查 |
 | 对账指标 | 完成 | econcile_runs/touched/errors + /metrics |
+| 战斗历史 | 完成 | attle_history 按玩家/赛季返回，最新优先 |
+| 对账错误明细 | 完成 | /api/reconcile/errors，保留最近 20 条 |
+| 赛季奖励 | 完成 | 重置前按排名发金，返回 ewarded |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |

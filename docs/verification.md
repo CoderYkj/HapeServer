@@ -594,3 +594,30 @@ PASS
 - `Reconcile` 每次累加 runs；成功累加 touched 并更新 last_touched gauge；失败累加 errors。
 - `Handle` 统一累加 commands/errors；rank/top 累加 rank_lookup；交易动作累加 trade_ok/fail。
 - `/metrics` 由 world 进程直接输出，P1 再接 Prometheus。
+## 增量验证：战斗历史 / 对账错误 / 赛季奖励（2026-10-30）
+
+### 战斗历史
+
+- `battle_history`（`playerId`, `season`, `k`）：按 attacker/defender 过滤，`createdAt` 倒序，limit 默认 20。
+- Memory 与 Mongo store 都实现 `ListByPlayer`；Mongo 索引改为 `attacker_season_created`、`defender_season_created`。
+- 冒烟：同一玩家 2 场战斗，`season=1` 返回 2 条，最新在前。
+- `TestHistory` 覆盖全量/按赛季过滤；`TestMongoBattlePersists` 增加 Mongo 历史查询。
+
+### 对账错误明细
+
+- `trade.Service.ReconcileDetailed` 返回每条失败交易的 `id + 动作 + 错误`；原 `Reconcile` 保持 `(touched,error)`。
+- `world.Service.ReconcileErrors()` 保留最近 20 条；`GET /api/reconcile/errors` 返回。
+- 指标新增 `reconcile_last_error_count`，`reconcile_errors_total` 按失败交易累加。
+- 单测 `TestReconcileDetailedErrors`：强制 transition 失败，`Touched=0`、`Errors=1`。
+
+### 赛季奖励
+
+- `SettleSeason` 在重置前按最终排名计算奖励：1 名 5000、2–10 名 2000、11–100 名 1000、101–1000 名 500、其余 100（仅 power>0）。
+- 先重置、后发奖；有 escrow 的玩家跳过且不发奖。
+- `season_reset` 现在返回 `{reset,rewarded,skipped}`。
+- 冒烟：两名玩家 → `reset=2, rewarded=2`；排名 1 的玩家重置后 gold=1000+5000=6000。
+
+```json
+{"season":2,"reset":2,"rewarded":2,"skipped":0}
+{"gold":6000,"wood":1000,"food":1000,"power":0}
+```

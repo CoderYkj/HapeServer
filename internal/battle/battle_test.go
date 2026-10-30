@@ -31,3 +31,21 @@ func TestSubmitAndGet(t *testing.T) {
 		t.Fatalf("get: %+v err=%v", got, err)
 	}
 }
+
+func TestHistory(t *testing.T) {
+	svc := NewService(nil)
+	if _, err := svc.Submit(context.Background(), 1, 1, 10, 20, 100, 50); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Submit(context.Background(), 1, 2, 10, 20, 100, 50); err != nil {
+		t.Fatal(err)
+	}
+	all, err := svc.History(context.Background(), 10, 0, 10)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("all=%d err=%v", len(all), err)
+	}
+	season1, err := svc.History(context.Background(), 10, 1, 10)
+	if err != nil || len(season1) != 1 || season1[0].Season != 1 {
+		t.Fatalf("season1=%+v err=%v", season1, err)
+	}
+}
