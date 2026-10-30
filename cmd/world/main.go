@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"hapeserver/internal/battle"
 	"hapeserver/internal/config"
 	"hapeserver/internal/link"
 	"hapeserver/internal/recovery"
@@ -85,6 +86,15 @@ func main() {
 
 	svc := world.NewService(sys, tradeStore, walLog)
 	svc.SetSeason(cfg.World.Season)
+	if cfg.Storage.MongoURL != "" {
+		bs, err := battle.OpenMongo(ctx, cfg.Storage.MongoURL, cfg.Storage.MongoDB)
+		if err != nil {
+			log.Fatalf("mongo battle store: %v", err)
+		}
+		defer func() { _ = bs.Close(context.Background()) }()
+		svc.UseBattleStore(bs)
+		log.Printf("battle store: mongodb db=%s", cfg.Storage.MongoDB)
+	}
 	last, err := recovery.Recover(store, walLog, cfg.World.ID, svc)
 	if err != nil {
 		log.Fatalf("recover: %v", err)
@@ -110,6 +120,10 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(svc.Metrics().Snapshot())
 	})
 	mux.HandleFunc("/api/command", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

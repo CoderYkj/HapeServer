@@ -10,6 +10,7 @@ import (
 
 	"hapeserver/internal/actor"
 	"hapeserver/internal/battle"
+	"hapeserver/internal/observability"
 	"hapeserver/internal/rank"
 	"hapeserver/internal/trade"
 	"hapeserver/internal/wal"
@@ -41,6 +42,7 @@ type Service struct {
 	rank    *rank.WorldRankActor
 	trade   *trade.Service
 	battles *battle.Service
+	metrics *observability.Metrics
 }
 
 // NewService wires the P0 subsystems together.
@@ -57,6 +59,7 @@ func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
 		season:  1,
 		rank:    rank.NewWorldRankActor(nil),
 		battles: battle.NewService(nil),
+		metrics: observability.New(),
 	}
 	s.trade = trade.NewService(store, &escrowAdapter{svc: s})
 	return s
@@ -64,6 +67,26 @@ func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
 
 // Rank exposes the leaderboard for read-only queries.
 func (s *Service) Rank() *rank.WorldRankActor { return s.rank }
+
+// SetMetrics swaps the process metrics sink.
+func (s *Service) SetMetrics(m *observability.Metrics) {
+	if m != nil {
+		s.metrics = m
+	}
+}
+
+// Metrics returns the process metrics.
+func (s *Service) Metrics() *observability.Metrics { return s.metrics }
+
+// UseBattleStore replaces the in-memory battle store with a durable one.
+func (s *Service) UseBattleStore(store battle.Store) {
+	if store == nil {
+		return
+	}
+	s.mu.Lock()
+	s.battles = battle.NewService(store)
+	s.mu.Unlock()
+}
 
 // EnsurePlayer spawns the player aggregate on first use.
 func (s *Service) EnsurePlayer(ctx context.Context, id uint64) (actor.Ref, error) {
@@ -302,6 +325,15 @@ type Request struct {
 
 // Handle dispatches one API action.
 func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
+	s.metrics.Commands.Add(1)
+	data, err := s.handle(ctx, req)
+	if err != nil {
+		s.metrics.Errors.Add(1)
+	}
+	return data, err
+}
+
+func (s *Service) handle(ctx context.Context, req Request) (any, error) {
 	switch req.Action {
 	case "grant":
 		return nil, s.Grant(ctx, req.PlayerID, req.Gold)
@@ -314,22 +346,25 @@ func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
 		}
 		return st, nil
 	case "rank":
+		s.metrics.RankLookup.Add(1)
 		rankN, ok := s.rank.RankOf(req.PlayerID)
 		return map[string]any{"rank": rankN, "ok": ok}, nil
 	case "top":
+		s.metrics.RankLookup.Add(1)
 		k := req.K
 		if k <= 0 {
 			k = 10
 		}
 		return s.rank.TopK(k), nil
 	case "trade_create":
-		return s.TradeCreate(ctx, req.PlayerID, req.Target, req.Gold, req.TargetGold)
+		data, err := s.TradeCreate(ctx, req.PlayerID, req.Target, req.Gold, req.TargetGold)
+		return s.tradeResult(data, err)
 	case "trade_accept":
-		return nil, s.TradeAccept(ctx, req.TradeID, req.PlayerID)
+		return s.tradeResult(nil, s.TradeAccept(ctx, req.TradeID, req.PlayerID))
 	case "trade_settle":
-		return nil, s.TradeSettle(ctx, req.TradeID)
+		return s.tradeResult(nil, s.TradeSettle(ctx, req.TradeID))
 	case "trade_cancel":
-		return nil, s.TradeCancel(ctx, req.TradeID)
+		return s.tradeResult(nil, s.TradeCancel(ctx, req.TradeID))
 	case "trade_get":
 		return s.trade.Get(ctx, req.TradeID)
 	case "reconcile":
@@ -351,6 +386,14 @@ func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
 	}
 }
 
+func (s *Service) tradeResult(data any, err error) (any, error) {
+	if err != nil {
+		s.metrics.TradeFail.Add(1)
+	} else {
+		s.metrics.TradeOK.Add(1)
+	}
+	return data, err
+}
 func (s *Service) applyPower(ctx context.Context, id uint64, power int64) error {
 	if _, err := s.dispatch(ctx, id, map[string]any{"op": "setpower", "power": power}); err != nil {
 		return err
@@ -451,5 +494,13 @@ func (e *escrowAdapter) Settle(ctx context.Context, pid uint64, tradeID string, 
 
 // Reconcile resumes non-terminal trades (settling or expired).
 func (s *Service) Reconcile(ctx context.Context, limit int64) (int, error) {
-	return s.trade.Reconcile(ctx, limit)
+	n, err := s.trade.Reconcile(ctx, limit)
+	s.metrics.ReconcileRuns.Add(1)
+	if err != nil {
+		s.metrics.ReconcileErrors.Add(1)
+	} else {
+		s.metrics.ReconcileTouched.Add(uint64(n))
+		s.metrics.SetGauge("reconcile_last_touched", int64(n))
+	}
+	return n, err
 }

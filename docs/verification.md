@@ -567,3 +567,30 @@ PASS
 - 本地用便携版 `mongod/mongos` 起集群，脚本未进仓库；`tools/shard-setup` 可复用。
 - 分片键 `_id: hashed` 适合按交易 ID 点查；如果后续按 `world + state` 扫对账，需要再评估分片键或加二级路由字段。
 - CI 暂未加 3-shard job（需要 7 个容器），本地已完整验证。
+## 增量验证：战斗持久化与对账指标（2026-10-30）
+
+### 战斗持久化
+
+- `battle.OpenMongo` 创建 `battles` 集合，索引：
+  - `world_season_created`：`{world:1, season:1, createdAt:-1}`
+  - `attacker_created` / `defender_created`
+- `world.Service.UseBattleStore` 在 `storage.mongoUrl` 非空时切换到 Mongo store。
+- 修了一个真实 bug：`Battle.ID` 只有 `json:"_id"`，没有 `bson:"_id"`，Mongo 自动生成了 ObjectID，按 ID 查不到；补上 bson tag 后测试通过。
+- `TestMongoBattlePersists`：提交 → 关闭 store → 重开 → 读回 winner/power/state。
+- world 冒烟：`battle_submit` → kill/重启 → `battle_get` 仍返回同一 `battleId`、winner=1、state=settled。
+- CI 的 Mongo integration job 现在同时跑 `./internal/battle` 与 `./internal/trade`。
+
+### 对账指标
+
+`/metrics` JSON 现在包含：
+
+```json
+{"commands_total":4,"errors_total":0,"rank_lookup_total":1,
+ "reconcile_runs_total":1,"reconcile_touched_total":0,
+ "reconcile_errors_total":0,"reconcile_last_touched":0,
+ "trade_ok_total":0,"trade_fail_total":0}
+```
+
+- `Reconcile` 每次累加 runs；成功累加 touched 并更新 last_touched gauge；失败累加 errors。
+- `Handle` 统一累加 commands/errors；rank/top 累加 rank_lookup；交易动作累加 trade_ok/fail。
+- `/metrics` 由 world 进程直接输出，P1 再接 Prometheus。

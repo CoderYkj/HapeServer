@@ -42,7 +42,7 @@ jobs:
         with:
           go-version: "1.27.2"
       - name: Mongo integration
-        run: go test ./internal/trade -run 'TestMongo' -v -count=1
+        run: go test ./internal/battle ./internal/trade -run 'TestMongo' -v -count=1
 
   replica:
     runs-on: ubuntu-latest

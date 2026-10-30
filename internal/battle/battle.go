@@ -22,7 +22,7 @@ var ErrNotFound = errors.New("battle not found")
 
 // Battle is one resolved combat instance.
 type Battle struct {
-	ID            string `json:"_id"`
+	ID            string `json:"_id" bson:"_id"`
 	World         uint32 `json:"world"`
 	Season        uint32 `json:"season"`
 	Attacker      uint64 `json:"attacker"`
