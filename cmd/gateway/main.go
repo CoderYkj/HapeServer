@@ -1,46 +1,43 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"strconv"
 
 	"hapeserver/internal/gateway"
+	"hapeserver/internal/link"
 )
 
 func main() {
-	worldURL := flag.String("world", "http://127.0.0.1:8080", "world HTTP base URL")
-	worldTCP := flag.String("world-tcp", "", "world TCP endpoint (empty = HTTP)")
-	tcpPool := flag.Int("tcp-pool", 4, "TCP connections per world")
-	addr := flag.String("addr", ":8081", "gateway listen address")
+	addr := flag.String("addr", ":9001", "player TCP listen address")
+	admin := flag.String("admin", ":8081", "admin HTTP listen address")
+	worldTCP := flag.String("world-tcp", "127.0.0.1:9000", "world TCP endpoint")
+	pool := flag.Int("tcp-pool", 4, "world TCP connections per gateway")
 	flag.Parse()
 
-	target, err := url.Parse(*worldURL)
+	remote := gateway.NewTCPRemote(*worldTCP, *pool)
+	srv, err := link.Listen(*addr, gateway.NewPlayerHandler(remote))
 	if err != nil {
-		log.Fatalf("world url: %v", err)
+		log.Fatalf("player tcp listen: %v", err)
 	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	var handler gateway.Handler
-	if *worldTCP != "" {
-		handler = gateway.NewTCPRemote(*worldTCP, *tcpPool)
-	} else {
-		handler = gateway.NewRemote(*worldURL)
-	}
+	defer func() { _ = srv.Close() }()
+	go func() {
+		if err := srv.Serve(context.Background()); err != nil {
+			log.Printf("player tcp stopped: %v", err)
+		}
+	}()
+	log.Printf("gateway tcp listening on %s -> world %s (pool=%d)", *addr, *worldTCP, *pool)
 
 	mux := http.NewServeMux()
-	mux.Handle("/ws", gateway.NewWS(handler))
-	mux.Handle("/api/command", proxy)
-	mux.Handle("/api/rank", proxy)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 	mux.HandleFunc("/admin/pool", func(w http.ResponseWriter, r *http.Request) {
-		remote, ok := handler.(*gateway.TCPRemote)
-		if !ok {
-			http.Error(w, "tcp pool not enabled", http.StatusBadRequest)
-			return
-		}
 		if r.Method == http.MethodPost {
 			n, err := strconv.Atoi(r.URL.Query().Get("size"))
 			if err != nil {
@@ -51,13 +48,8 @@ func main() {
 		}
 		_, _ = fmt.Fprintf(w, "pool=%d\n", remote.Size())
 	})
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-
-	log.Printf("gateway listening on %s -> %s (tcp=%q)", *addr, *worldURL, *worldTCP)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	log.Printf("gateway admin listening on %s", *admin)
+	if err := http.ListenAndServe(*admin, mux); err != nil {
 		log.Fatal(err)
 	}
 }

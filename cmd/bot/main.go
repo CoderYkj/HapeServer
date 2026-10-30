@@ -1,20 +1,18 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
-	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"hapeserver/internal/link"
 )
 
 type apiRequest struct {
-	Seq        uint64 `json:"seq"`
 	PlayerID   uint64 `json:"playerId"`
 	Target     uint64 `json:"targetId"`
 	Action     string `json:"action"`
@@ -23,12 +21,9 @@ type apiRequest struct {
 	Power      int64  `json:"power"`
 	TradeID    string `json:"tradeId"`
 	K          int    `json:"k"`
-}
-
-type apiResponse struct {
-	OK    bool            `json:"ok"`
-	Data  json.RawMessage `json:"data"`
-	Error string          `json:"error"`
+	Season     uint32 `json:"season"`
+	DefPower   int64  `json:"defPower"`
+	BattleID   string `json:"battleId"`
 }
 
 type stats struct {
@@ -54,28 +49,19 @@ func (s *stats) record(d time.Duration, err error) {
 }
 
 func main() {
-	base := flag.String("base", "http://127.0.0.1:8080", "world HTTP base URL")
+	addr := flag.String("addr", "127.0.0.1:9001", "gateway TCP address")
 	n := flag.Int("n", 1000, "number of bots")
 	rate := flag.Float64("rate", 0.2, "actions per bot per second")
 	duration := flag.Duration("duration", time.Hour, "test duration")
-	useWS := flag.Bool("ws", false, "use WebSocket instead of HTTP")
 	flag.Parse()
 
 	if *n <= 0 || *rate <= 0 || *duration <= 0 {
 		panic("n, rate, duration must be positive")
 	}
-
-	httpTransport := &http.Transport{
-		MaxIdleConns:        4000,
-		MaxIdleConnsPerHost: 4000,
-		IdleConnTimeout:     60 * time.Second,
-	}
-	client := &http.Client{Transport: httpTransport, Timeout: 5 * time.Second}
-	if err := waitReady(client, *base, 15*time.Second); err != nil {
+	if err := waitReady(*addr, 15*time.Second); err != nil {
 		panic(err)
 	}
 	st := &stats{}
-
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	interval := time.Duration(float64(time.Second) / *rate)
@@ -86,20 +72,16 @@ func main() {
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(int64(id)))
 			time.Sleep(time.Duration(rng.Intn(5000)) * time.Millisecond)
+			tr, err := dialTCP(*addr, uint64(id))
+			if err != nil {
+				st.record(0, err)
+				return
+			}
+			defer tr.close()
+			peers.Store(uint64(id), tr)
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			peer := uint64(id%*n + 1)
-			tr := &transport{hc: client, base: *base}
-			if *useWS {
-				wc, werr := dialWS(*base, uint64(id))
-				if werr != nil {
-					st.record(0, werr)
-					return
-				}
-				defer wc.close()
-				tr.ws = wc
-			}
-			peers.Store(uint64(id), tr)
 			for {
 				select {
 				case <-stop:
@@ -140,73 +122,27 @@ func main() {
 	}
 	st.mu.Lock()
 	lats := append([]int64(nil), st.lat...)
+	samples := append([]string(nil), st.samples...)
 	st.mu.Unlock()
 	sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
 	p50 := lats[len(lats)*50/100]
 	p99 := lats[len(lats)*99/100]
 	fmt.Printf("bots=%d total=%d ok=%d err=%d err_rate=%.4f p50=%dus p99=%dus\n",
 		*n, total, ok, bad, float64(bad)/float64(total), p50, p99)
-	for _, s := range st.samples {
+	for _, s := range samples {
 		fmt.Printf("err-sample: %s\n", s)
 	}
 }
 
-func call(c *http.Client, base string, req apiRequest) error {
-	body, _ := json.Marshal(req)
-	resp, err := c.Post(base+"/api/command", "application/json", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	var out apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return err
-	}
-	if !out.OK {
-		return fmt.Errorf("%s", out.Error)
-	}
-	return nil
-}
-
-func trade(c *http.Client, base string, a, b uint64) error {
-	body, _ := json.Marshal(apiRequest{
-		PlayerID: a, Target: b, Action: "trade_create", Gold: 1, TargetGold: 0,
-	})
-	resp, err := c.Post(base+"/api/command", "application/json", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	var created apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return err
-	}
-	if !created.OK {
-		return fmt.Errorf("create: %s", created.Error)
-	}
-	var tr struct {
-		ID string `json:"_id"`
-	}
-	if err := json.Unmarshal(created.Data, &tr); err != nil || tr.ID == "" {
-		return fmt.Errorf("create: bad trade id")
-	}
-	if err := call(c, base, apiRequest{PlayerID: b, Action: "trade_accept", TradeID: tr.ID}); err != nil {
-		return err
-	}
-	return call(c, base, apiRequest{PlayerID: a, Action: "trade_settle", TradeID: tr.ID})
-}
-
-func waitReady(c *http.Client, base string, timeout time.Duration) error {
+func waitReady(addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		resp, err := c.Get(base + "/healthz")
+		c, err := link.Dial(addr, 500*time.Millisecond)
 		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
-			}
+			_ = c.Close()
+			return nil
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return fmt.Errorf("world not ready after %s", timeout)
+	return fmt.Errorf("gateway not ready after %s", timeout)
 }

@@ -778,3 +778,33 @@ reconcile_runs_total 1
 
 - 本机没有 Docker，compose 与 CI job 未在本机执行；R3 行为已用本地 3 个 `nats-server` 进程验证（见上一节）。
 - Prometheus 端点未做鉴权，生产应放内网或加 basic auth/ingress 限制。
+## 增量验证：玩家接入统一为原生 TCP（2026-10-30）
+
+### 协议
+
+- 玩家连接使用 `internal/link` 的帧协议：`[len:4][type:1][id:8][payload]`，请求/响应按 `id` 关联。
+- 请求 JSON：`{token, request:{action, playerId, ...}}`；响应 JSON：`{ok, data, error}`。
+- token 仍是 dev token `dev:<world>:<player>`；每个请求携带，P1 换会话级 JWT。
+- gateway 只监听 TCP；HTTP `:8081` 仅保留 `/healthz` 与 `/admin/pool`，不再有 `/ws`、`/api/command` 代理。
+
+### 代码变化
+
+- 删除 `internal/gateway/ws.go`、`ws_test.go`、`remote.go`、`remote_test.go`。
+- 新增 `internal/gateway/player_tcp.go`、`player_tcp_test.go`。
+- `cmd/bot` 改为 `link.Dial` + `Call`，移除 HTTP/WebSocket 传输与 `-ws`。
+- `cmd/gateway` 默认 `-addr :9001 -admin :8081 -world-tcp 127.0.0.1:9000`。
+- world 的 HTTP 只保留指标/健康检查等内部接口。
+
+### 测试与压测
+
+```text
+TestPlayerTCPCommand / TestPlayerTCPAuth / TestPlayerTCPMismatch  PASS
+100 bot / 10s：1451 请求，0 错误，p99 999µs
+1000 bot / 30s：5001 请求，0 错误，p99 1170µs
+```
+
+### 当前限制
+
+- 原生 TCP 还没有服务端主动 push 与增量 resume；客户端重连后需重新查询 state。
+- token 每请求携带，增加了少量字节与鉴权开销。
+- 玩家连接没有应用层心跳；服务端 90s 读超时会断开完全空闲的连接。

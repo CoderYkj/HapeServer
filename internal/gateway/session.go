@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Session is one authenticated WebSocket connection.
+// Session is one authenticated player connection.
 type Session struct {
 	PlayerID uint64
 	WorldID  uint32

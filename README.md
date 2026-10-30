@@ -43,13 +43,13 @@
 | G02 escrow | 完成 | 锁定/退款/结算幂等单测 |
 | G03 TradeService | 完成 | 创建/接受/结算/取消/对账，可从 settling/refunding 续跑 |
 | G04 失败注入 | 完成 | 创建失败、接受冲突、部分结算、过期对账 |
-| H02 世界 API | 完成 | HTTP /api/command + WebSocket /ws；dev token 鉴权 |
-| H02 WS 压测 | 完成 | 1000 WS 连接 / 30s：5001 请求、0 错误、p99 532µs |
-| WS 推送/续传 | 完成 | subscribe 后推 push；resume 返回 stateVersion 与完整状态 |
-| 独立 gateway | 完成 | cmd/gateway 唯一 WS 入口；world /ws 已移除 |
-| 自定义 TCP link | 完成 | 帧协议/多路复用/超时；1k WS 30s 0 错误 |
+| H02 玩家接入 | 完成 | 原生 TCP 帧协议；dev token；gateway 唯一入口 |
+| TCP 玩家压测 | 完成 | 1000 TCP 连接 / 30s：5001 请求、0 错误、p99 1.17ms |
+| 玩家推送/续传 | 暂未实现 | 原生 TCP 当前为请求-响应，续传由 state 查询替代 |
+| 独立 gateway | 完成 | cmd/gateway 只做 TCP 接入，world 无玩家入口 |
+| 自定义 TCP link | 完成 | 帧协议/多路复用/超时；gateway→world |
 | TCP 连接池 | 完成 | -tcp-pool 默认 4，按请求轮询 |
-| 交易走 WS | 完成 | 双方各自会话走 TCP；1k 30s p99 1.13ms |
+| 交易走 TCP | 完成 | 双方各自玩家连接；1k 30s p99 1.17ms |
 | 动态 TCP 池 | 完成 | SetSize + /admin/pool；soak 中 4→8 |
 | 池按 playerID 哈希 | 完成 | 同一玩家固定槽位，减少跨连接乱序 |
 | 1h 动态池 soak | 完成 | 719,001 请求、0 错误、p50 111µs、p99 1.22ms |
@@ -80,7 +80,7 @@
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |
 | H05 1k bot | 1h soak 完成 | 719,001 请求、0 错误、p50 32µs、p99 1.5ms |
-| H05 1h WS soak | 完成 | 1000 连接 / 1h：719,001 请求、0 错误、p99 1.32ms |
+| H05 1h TCP soak | 待补 | 历史 WS 1h 通过；原生 TCP 版待重跑 |
 | C06 崩溃注入 | 完成 | 截断快照回退、tmp 忽略、WAL 边界/坏记录；进程级快照损坏回退 |
 
 ## 目录
@@ -122,23 +122,23 @@ docker compose up -d
 make build
 make test
 
-# 4. 跑单机 world（只保留 HTTP API）
+# 4. 跑单机 world（HTTP 只保留内部指标/健康检查）
 make run-world
 
-# 5. 跑 gateway（WebSocket 接入）
+# 5. 跑 gateway（玩家原生 TCP :9001）
 make run-gateway
 
-# 6. 压测（1k bot 走 gateway WebSocket）
-go run ./cmd/bot -base http://127.0.0.1:8081 -ws -n 1000 -rate 0.2
+# 6. 压测（1k bot 走 gateway TCP）
+go run ./cmd/bot -addr 127.0.0.1:9001 -n 1000 -rate 0.2
 ```
 
 Windows 无 `make` 时直接执行 `go build ./...`、`go test ./...`。
 
 ## P0 范围
 
-包含：运行时、玩家/区域、时间轮、WAL、本地快照、排行榜、定向交易、网关/机器人、指标。
+包含：运行时、玩家/区域、WAL R3、RF=3 快照、排行榜、定向交易、战斗、赛季结算、原生 TCP 网关、机器人、指标。
 
-不包含：集群/分片迁移、RF=3 复制、K8s、战斗、赛季结算、跨服组、拍卖行。
+不包含：多 world/跨服、账号体系、K8s、深度战斗、拍卖行。
 
 ## 约定
 
