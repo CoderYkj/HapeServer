@@ -64,9 +64,10 @@ func main() {
 	switch cfg.Storage.WALKind {
 	case "jetstream":
 		js, err := wal.OpenJetStream(wal.JetStreamConfig{
-			URL:     cfg.Storage.NATSURL,
-			Stream:  cfg.Storage.WALStream,
-			Subject: cfg.Storage.WALSubject,
+			URL:      cfg.Storage.NATSURL,
+			Stream:   cfg.Storage.WALStream,
+			Subject:  cfg.Storage.WALSubject,
+			Replicas: cfg.Storage.WALReplicas,
 		})
 		if err != nil {
 			log.Fatalf("jetstream wal: %v", err)

@@ -39,6 +39,7 @@ type Storage struct {
 	NATSURL         string   `json:"natsUrl"`
 	WALStream       string   `json:"walStream"`
 	WALSubject      string   `json:"walSubject"`
+	WALReplicas     int      `json:"walReplicas"`
 	MongoURL        string   `json:"mongoUrl"` // empty = in-memory trade store
 	MongoDB         string   `json:"mongoDb"`
 }

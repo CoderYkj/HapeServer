@@ -716,3 +716,36 @@ state.player1.gold = 1050
 
 - 三个 world 在同一台机器上、不同进程/目录；真实跨节点需要把 `snapshotPeers` 指向其他节点，并加 TLS/内网 ACL。
 - **WAL 还没有跨节点复制**：owner 在两次快照之间的 WAL 仍只在本机 JetStream；要做到完整 R3，需要 JetStream 3 节点集群或 WAL peer 复制。
+## 增量验证：R3 JetStream WAL（2026-10-30）
+
+### 集群
+
+```text
+n1 :4221  cluster :6221
+n2 :4222  cluster :6222
+n3 :4223  cluster :6223
+JetStream store_dir 各自独立
+```
+
+- 三个 `nats-server` 组成 `hape` route 集群。
+- `wal.JetStreamConfig.Replicas=3`，stream 创建时 `Replicas:3`；`storage.walReplicas` 配置。
+- `TestJetStreamRoundTrip` 增加 `StreamInfo.Config.Replicas` 断言。
+
+### 单节点故障
+
+```text
+kill n3
+stream R3 仍有 2/3 副本
+world（disableSnapshot=true，纯 WAL）grant 50
+kill -9 world + 重启
+state.player1.gold = 1050
+```
+
+- 纯 WAL 恢复成功，证明一条 NATS 节点下线时 R3 stream 仍可写、可回放。
+- 同时配合前面的 snapshot peer RF=3：快照跨进程 3 副本，WAL 跨节点 3 副本。
+
+### 边界
+
+- 三个 NATS 节点仍在同一台机器；生产需 3 台/3 AZ，并配置 TLS 与鉴权。
+- R3 只能容忍 1 个节点故障；2 个节点丢失时 stream 不可写。
+- 本地验证未把 NATS 集群配置纳入仓库（用临时 conf），CI 暂未加 3 节点 NATS job。

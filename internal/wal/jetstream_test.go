@@ -19,11 +19,22 @@ func TestJetStreamRoundTrip(t *testing.T) {
 	stream := fmt.Sprintf("WAL_TEST_%d", suffix)
 	subject := fmt.Sprintf("wal.test.%d", suffix)
 
-	w, err := OpenJetStream(JetStreamConfig{URL: url, Stream: stream, Subject: subject})
+	replicas := 1
+	if os.Getenv("NATS_REPLICAS") == "3" {
+		replicas = 3
+	}
+	w, err := OpenJetStream(JetStreamConfig{URL: url, Stream: stream, Subject: subject, Replicas: replicas})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = w.Close() }()
+	info, err := w.js.StreamInfo(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Config.Replicas != replicas {
+		t.Fatalf("stream replicas = %d, want %d", info.Config.Replicas, replicas)
+	}
 
 	for _, s := range []string{"a", "b", "c"} {
 		if _, err := w.Append([]byte(s)); err != nil {

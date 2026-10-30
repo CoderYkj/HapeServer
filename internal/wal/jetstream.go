@@ -11,9 +11,10 @@ import (
 
 // JetStreamConfig identifies one shard's WAL stream.
 type JetStreamConfig struct {
-	URL     string
-	Stream  string // e.g. WAL_7
-	Subject string // e.g. wal.7
+	URL      string
+	Stream   string // e.g. WAL_7
+	Subject  string // e.g. wal.7
+	Replicas int    // 1 (default) or 3 for an R3 cluster
 }
 
 // JetStream is a Log backed by one NATS JetStream stream per shard. Stream
@@ -45,12 +46,17 @@ func OpenJetStream(cfg JetStreamConfig) (*JetStream, error) {
 		nc.Close()
 		return nil, fmt.Errorf("jetstream context: %w", err)
 	}
+	replicas := cfg.Replicas
+	if replicas <= 0 {
+		replicas = 1
+	}
 	w := &JetStream{nc: nc, js: js, stream: cfg.Stream, subject: cfg.Subject}
 	if _, err := js.StreamInfo(cfg.Stream); err != nil {
 		if _, addErr := js.AddStream(&nats.StreamConfig{
 			Name:     cfg.Stream,
 			Subjects: []string{cfg.Subject},
 			Storage:  nats.FileStorage,
+			Replicas: replicas,
 		}); addErr != nil {
 			// A concurrent creator wins; re-check before failing.
 			if _, infoErr := js.StreamInfo(cfg.Stream); infoErr != nil {
