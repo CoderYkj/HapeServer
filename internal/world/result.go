@@ -1,6 +1,10 @@
 package world
 
 import (
+	"encoding/json"
+
+	"google.golang.org/protobuf/proto"
+
 	"hapeserver/internal/battle"
 	"hapeserver/internal/protocol/worldv1"
 	"hapeserver/internal/rank"
@@ -39,6 +43,10 @@ func encodeResult(resp *worldv1.Response, action string, data any) {
 				page.Items = append(page.Items, battleToProto(&p.Items[i]))
 			}
 			resp.Result = &worldv1.Response_BattlePage{BattlePage: page}
+		}
+	case "state_delta":
+		if d, ok := data.(*worldv1.StateDelta); ok {
+			resp.Result = &worldv1.Response_Delta{Delta: d}
 		}
 	case "reconcile":
 		m, _ := data.(map[string]any)
@@ -131,4 +139,64 @@ func battleToProto(b *battle.Battle) *worldv1.Battle {
 		CreatedAt:     b.CreatedAt,
 		SettledAt:     b.SettledAt,
 	}
+}
+
+func encodeStates(states []PlayerState) ([]byte, error) {
+	out := &worldv1.PlayerStates{Players: make([]*worldv1.PlayerState, 0, len(states))}
+	for _, st := range states {
+		out.Players = append(out.Players, stateToProto(st))
+	}
+	return proto.Marshal(out)
+}
+
+func decodeStates(payload []byte) ([]PlayerState, error) {
+	if len(payload) == 0 {
+		return nil, nil
+	}
+	var ps worldv1.PlayerStates
+	if err := proto.Unmarshal(payload, &ps); err == nil && len(ps.Players) > 0 {
+		states := make([]PlayerState, 0, len(ps.Players))
+		for _, p := range ps.Players {
+			states = append(states, stateFromProto(p))
+		}
+		return states, nil
+	}
+	var states []PlayerState
+	if err := json.Unmarshal(payload, &states); err != nil {
+		return nil, err
+	}
+	return states, nil
+}
+
+func stateFromProto(p *worldv1.PlayerState) PlayerState {
+	st := PlayerState{
+		PlayerID: p.PlayerId,
+		SeasonID: p.SeasonId,
+		Resources: Assets{
+			Gold: p.GetResources().GetGold(),
+			Wood: p.GetResources().GetWood(),
+			Food: p.GetResources().GetFood(),
+		},
+		Power:   p.Power,
+		Escrow:  make(map[string]Assets, len(p.Escrow)),
+		Settled: make(map[string]bool, len(p.SettledTrades)),
+		SeenOps: append([]string(nil), p.SeenOps...),
+		Version: p.Version,
+	}
+	if c := p.GetCity(); c != nil {
+		st.City = CityState{Level: int(c.Level), X: int(c.X), Y: int(c.Y)}
+	}
+	for _, m := range p.Marches {
+		st.Marches = append(st.Marches, March{ID: m.Id, From: m.From, To: m.To, ArriveAt: m.ArriveAt})
+	}
+	for _, q := range p.Queues {
+		st.Queues = append(st.Queues, Queue{ID: q.Id, Kind: q.Kind, DoneAt: q.DoneAt, Canceled: q.Canceled})
+	}
+	for k, v := range p.Escrow {
+		st.Escrow[k] = Assets{Gold: v.Gold, Wood: v.Wood, Food: v.Food}
+	}
+	for k, v := range p.SettledTrades {
+		st.Settled[k] = v
+	}
+	return st
 }

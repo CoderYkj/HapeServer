@@ -21,10 +21,11 @@ type Runtime struct {
 }
 
 type World struct {
-	ID     uint32 `json:"id"`
-	Region string `json:"region"`
-	Shards int    `json:"shards"`
-	Season uint32 `json:"season"`
+	ID      uint32 `json:"id"`
+	Region  string `json:"region"`
+	Shards  int    `json:"shards"`
+	Season  uint32 `json:"season"`
+	Prewarm int    `json:"prewarm"`
 }
 
 type Storage struct {

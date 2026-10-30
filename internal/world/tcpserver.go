@@ -17,18 +17,19 @@ func NewTCPHandler(s *Service) link.Handler {
 			return nil, err
 		}
 		req := Request{
-			Seq:        cmd.Seq,
-			PlayerID:   cmd.PlayerId,
-			Target:     cmd.TargetId,
-			Action:     cmd.Action,
-			Gold:       cmd.Gold,
-			TargetGold: cmd.TargetGold,
-			Power:      cmd.Power,
-			TradeID:    cmd.TradeId,
-			K:          int(cmd.K),
-			Season:     cmd.Season,
-			DefPower:   cmd.DefPower,
-			BattleID:   cmd.BattleId,
+			Seq:         cmd.Seq,
+			PlayerID:    cmd.PlayerId,
+			Target:      cmd.TargetId,
+			Action:      cmd.Action,
+			Gold:        cmd.Gold,
+			TargetGold:  cmd.TargetGold,
+			Power:       cmd.Power,
+			TradeID:     cmd.TradeId,
+			K:           int(cmd.K),
+			Season:      cmd.Season,
+			DefPower:    cmd.DefPower,
+			BattleID:    cmd.BattleId,
+			FromVersion: cmd.FromVersion,
 		}
 		resp, _ := s.Handle(ctx, req)
 		return proto.Marshal(resp)

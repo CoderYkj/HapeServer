@@ -57,17 +57,18 @@ func dialTCP(addr string, pid uint64) (*transport, error) {
 func (t *transport) do(req apiRequest) (*worldv1.Response, error) {
 	in := &playerv1.Request{
 		Command: &worldv1.Command{
-			PlayerId:   req.PlayerID,
-			TargetId:   req.Target,
-			Action:     req.Action,
-			Gold:       req.Gold,
-			TargetGold: req.TargetGold,
-			Power:      req.Power,
-			TradeId:    req.TradeID,
-			K:          int32(req.K),
-			Season:     req.Season,
-			DefPower:   req.DefPower,
-			BattleId:   req.BattleID,
+			PlayerId:    req.PlayerID,
+			TargetId:    req.Target,
+			Action:      req.Action,
+			Gold:        req.Gold,
+			TargetGold:  req.TargetGold,
+			Power:       req.Power,
+			TradeId:     req.TradeID,
+			K:           int32(req.K),
+			Season:      req.Season,
+			DefPower:    req.DefPower,
+			BattleId:    req.BattleID,
+			FromVersion: req.FromVersion,
 		},
 	}
 	body, err := proto.Marshal(in)

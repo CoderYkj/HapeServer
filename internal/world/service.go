@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
 	"hapeserver/internal/actor"
 	"hapeserver/internal/battle"
 	"hapeserver/internal/observability"
+
 	"hapeserver/internal/protocol/worldv1"
 	"hapeserver/internal/rank"
 	"hapeserver/internal/trade"
@@ -42,11 +44,13 @@ type Service struct {
 
 	mutMu sync.RWMutex
 
-	mu      sync.Mutex
-	players map[uint64]*PlayerActor
-	refs    map[uint64]actor.Ref
-	powers  map[uint64]uint64
-	seq     uint64
+	mu        sync.Mutex
+	players   map[uint64]*PlayerActor
+	refs      map[uint64]actor.Ref
+	powers    map[uint64]uint64
+	stateHist map[uint64][]PlayerState
+	spawning  map[uint64]chan struct{}
+	seq       uint64
 
 	season  uint32
 	rank    *rank.WorldRankActor
@@ -65,16 +69,18 @@ func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
 		log = wal.NewMemory()
 	}
 	s := &Service{
-		sys:     sys,
-		wal:     log,
-		players: make(map[uint64]*PlayerActor),
-		refs:    make(map[uint64]actor.Ref),
-		powers:  make(map[uint64]uint64),
-		season:  1,
-		rank:    rank.NewWorldRankActor(nil),
-		battles: battle.NewService(nil),
-		metrics: observability.New(),
-		rewards: DefaultRewards(),
+		sys:       sys,
+		wal:       log,
+		players:   make(map[uint64]*PlayerActor),
+		refs:      make(map[uint64]actor.Ref),
+		powers:    make(map[uint64]uint64),
+		stateHist: make(map[uint64][]PlayerState),
+		spawning:  make(map[uint64]chan struct{}),
+		season:    1,
+		rank:      rank.NewWorldRankActor(nil),
+		battles:   battle.NewService(nil),
+		metrics:   observability.New(),
+		rewards:   DefaultRewards(),
 	}
 	s.trade = trade.NewService(store, &escrowAdapter{svc: s})
 	return s
@@ -109,21 +115,70 @@ func (s *Service) UseBattleStore(store battle.Store) {
 // EnsurePlayer spawns the player aggregate on first use.
 func (s *Service) EnsurePlayer(ctx context.Context, id uint64) (actor.Ref, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if ref, ok := s.refs[id]; ok {
+		s.mu.Unlock()
 		return ref, nil
 	}
-	p := NewPlayer(id, s.season)
+	if ch, ok := s.spawning[id]; ok {
+		s.mu.Unlock()
+		<-ch
+		s.mu.Lock()
+		ref, ok := s.refs[id]
+		s.mu.Unlock()
+		if !ok {
+			return actor.Ref{}, fmt.Errorf("spawn failed for player %d", id)
+		}
+		return ref, nil
+	}
+	ch := make(chan struct{})
+	s.spawning[id] = ch
+	season := s.season
+	s.mu.Unlock()
+
+	p := NewPlayer(id, season)
 	p.State.Resources = Assets{Gold: 1000, Wood: 1000, Food: 1000}
 	ref, err := s.sys.Spawn(ctx, fmt.Sprintf("player-%d", id), p)
+
+	s.mu.Lock()
+	delete(s.spawning, id)
 	if err != nil {
+		close(ch)
+		s.mu.Unlock()
 		return actor.Ref{}, err
 	}
 	s.players[id] = p
 	s.refs[id] = ref
+	s.stateHist[id] = []PlayerState{cloneState(p.State)}
 	s.rank.Update(rank.Update{PID: id, Power: 0, Version: 1})
 	s.powers[id] = 1
+	close(ch)
+	s.mu.Unlock()
 	return ref, nil
+}
+
+// Prewarm creates players 1..n before serving traffic.
+func (s *Service) Prewarm(ctx context.Context, n uint64) error {
+	sem := make(chan struct{}, 64)
+	var wg sync.WaitGroup
+	var first error
+	var mu sync.Mutex
+	for id := uint64(1); id <= n; id++ {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(id uint64) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if _, err := s.EnsurePlayer(ctx, id); err != nil {
+				mu.Lock()
+				if first == nil {
+					first = err
+				}
+				mu.Unlock()
+			}
+		}(id)
+	}
+	wg.Wait()
+	return first
 }
 
 // SetSeason changes the current season used for new and stale players.
@@ -318,32 +373,40 @@ func (s *Service) TradeCancel(ctx context.Context, id string) error {
 	return s.trade.Cancel(ctx, id)
 }
 
-// Snapshot serializes all live player states.
-func (s *Service) Snapshot() ([]byte, error) {
+func (s *Service) snapshotStates() []PlayerState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	states := make([]PlayerState, 0, len(s.players))
 	for _, p := range s.players {
-		states = append(states, p.State)
+		states = append(states, cloneState(p.State))
 	}
-	return json.Marshal(states)
+	return states
+}
+
+// Snapshot serializes all live player states. JSON encoding happens outside
+// the state lock so reads are not blocked by a large snapshot.
+func (s *Service) Snapshot() ([]byte, error) {
+	return encodeStates(s.snapshotStates())
 }
 
 // SnapshotWithOffset captures state and the matching WAL offset while no
 // mutation is in flight, so replay never double-applies or skips a record.
+// The expensive JSON encoding runs after the mutation barrier is released.
 func (s *Service) SnapshotWithOffset() ([]byte, uint64, error) {
 	s.mutMu.Lock()
-	defer s.mutMu.Unlock()
-	payload, err := s.Snapshot()
+	states := s.snapshotStates()
+	offset := s.wal.LastOffset()
+	s.mutMu.Unlock()
+	payload, err := encodeStates(states)
 	if err != nil {
 		return nil, 0, err
 	}
-	return payload, s.wal.LastOffset(), nil
+	return payload, offset, nil
 }
 
 func readOnlyAction(action string) bool {
 	switch action {
-	case "state", "rank", "top", "battle_get", "battle_history", "trade_get", "reconcile":
+	case "state", "rank", "top", "battle_get", "battle_history", "trade_get", "reconcile", "state_delta":
 		return true
 	default:
 		return false
@@ -352,8 +415,8 @@ func readOnlyAction(action string) bool {
 
 // Restore recreates player actors from a snapshot payload.
 func (s *Service) Restore(ctx context.Context, payload []byte) error {
-	var states []PlayerState
-	if err := json.Unmarshal(payload, &states); err != nil {
+	states, err := decodeStates(payload)
+	if err != nil {
 		return err
 	}
 	for i := range states {
@@ -374,6 +437,7 @@ func (s *Service) Restore(ctx context.Context, payload []byte) error {
 		s.players[st.PlayerID] = p
 		s.refs[st.PlayerID] = ref
 		s.powers[st.PlayerID] = 1
+		s.stateHist[st.PlayerID] = []PlayerState{cloneState(st)}
 		s.mu.Unlock()
 		s.rank.Update(rank.Update{PID: st.PlayerID, Power: st.Power, Version: 1})
 	}
@@ -425,20 +489,21 @@ func (s *Service) State(id uint64) (PlayerState, bool) {
 
 // Request is one API action.
 type Request struct {
-	Seq        uint64 `json:"seq"`
-	PlayerID   uint64 `json:"playerId"`
-	Target     uint64 `json:"targetId"`
-	Action     string `json:"action"`
-	Gold       int64  `json:"gold"`
-	TargetGold int64  `json:"targetGold"`
-	Power      int64  `json:"power"`
-	TradeID    string `json:"tradeId"`
-	K          int    `json:"k"`
-	Season     uint32 `json:"season"`
-	DefPower   int64  `json:"defPower"`
-	BattleID   string `json:"battleId"`
-	Before     int64  `json:"before"`
-	BeforeID   string `json:"beforeId"`
+	Seq         uint64 `json:"seq"`
+	PlayerID    uint64 `json:"playerId"`
+	Target      uint64 `json:"targetId"`
+	Action      string `json:"action"`
+	Gold        int64  `json:"gold"`
+	TargetGold  int64  `json:"targetGold"`
+	Power       int64  `json:"power"`
+	TradeID     string `json:"tradeId"`
+	K           int    `json:"k"`
+	Season      uint32 `json:"season"`
+	DefPower    int64  `json:"defPower"`
+	BattleID    string `json:"battleId"`
+	FromVersion uint64 `json:"fromVersion"`
+	Before      int64  `json:"before"`
+	BeforeID    string `json:"beforeId"`
 }
 
 // Handle dispatches one API action and returns a typed protobuf response.
@@ -455,6 +520,9 @@ func (s *Service) Handle(ctx context.Context, req Request) (*worldv1.Response, e
 		resp.Error = err.Error()
 	} else {
 		encodeResult(resp, req.Action, data)
+		if !readOnlyAction(req.Action) {
+			s.captureState(req.PlayerID)
+		}
 	}
 	return resp, err
 }
@@ -493,6 +561,12 @@ func (s *Service) handle(ctx context.Context, req Request) (any, error) {
 		return s.tradeResult(nil, s.TradeCancel(ctx, req.TradeID))
 	case "trade_get":
 		return s.trade.Get(ctx, req.TradeID)
+	case "state_delta":
+		d := s.Delta(req.PlayerID, req.FromVersion)
+		if d == nil {
+			return nil, fmt.Errorf("state version unavailable")
+		}
+		return d, nil
 	case "reconcile":
 		n, err := s.Reconcile(ctx, int64(req.K))
 		return map[string]any{"touched": n}, err
@@ -525,6 +599,110 @@ func (s *Service) tradeResult(data any, err error) (any, error) {
 		s.metrics.TradeOK.Add(1)
 	}
 	return data, err
+}
+
+const stateHistoryLimit = 8
+
+func cloneState(st PlayerState) PlayerState {
+	out := st
+	out.Marches = append([]March(nil), st.Marches...)
+	out.Queues = append([]Queue(nil), st.Queues...)
+	out.SeenOps = append([]string(nil), st.SeenOps...)
+	out.Escrow = make(map[string]Assets, len(st.Escrow))
+	for k, v := range st.Escrow {
+		out.Escrow[k] = v
+	}
+	out.Settled = make(map[string]bool, len(st.Settled))
+	for k, v := range st.Settled {
+		out.Settled[k] = v
+	}
+	return out
+}
+
+func (s *Service) captureState(pid uint64) {
+	if pid == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.players[pid]
+	if p == nil {
+		return
+	}
+	cur := cloneState(p.State)
+	h := s.stateHist[pid]
+	if len(h) > 0 && h[len(h)-1].Version == cur.Version {
+		return
+	}
+	h = append(h, cur)
+	if len(h) > stateHistoryLimit {
+		h = h[len(h)-stateHistoryLimit:]
+	}
+	s.stateHist[pid] = h
+}
+
+// Delta builds a field-level diff from fromVersion to the current state.
+// It returns nil when the base version is no longer retained.
+func (s *Service) Delta(pid, fromVersion uint64) *worldv1.StateDelta {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p := s.players[pid]
+	if p == nil {
+		return nil
+	}
+	cur := cloneState(p.State)
+	var base PlayerState
+	found := false
+	for _, st := range s.stateHist[pid] {
+		if st.Version == fromVersion {
+			base = st
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	d := &worldv1.StateDelta{FromVersion: fromVersion, StateVersion: cur.Version}
+	if !reflect.DeepEqual(base.Resources, cur.Resources) {
+		d.Changed = append(d.Changed, "resources")
+		d.Resources = assetsToProto(cur.Resources)
+	}
+	if !reflect.DeepEqual(base.City, cur.City) {
+		d.Changed = append(d.Changed, "city")
+		d.City = &worldv1.City{Level: int32(cur.City.Level), X: int32(cur.City.X), Y: int32(cur.City.Y)}
+	}
+	if base.Power != cur.Power {
+		d.Changed = append(d.Changed, "power")
+		d.Power = cur.Power
+	}
+	if !reflect.DeepEqual(base.Marches, cur.Marches) {
+		d.Changed = append(d.Changed, "marches")
+		for _, m := range cur.Marches {
+			d.Marches = append(d.Marches, &worldv1.March{Id: m.ID, From: m.From, To: m.To, ArriveAt: m.ArriveAt})
+		}
+	}
+	if !reflect.DeepEqual(base.Queues, cur.Queues) {
+		d.Changed = append(d.Changed, "queues")
+		for _, q := range cur.Queues {
+			d.Queues = append(d.Queues, &worldv1.Queue{Id: q.ID, Kind: q.Kind, DoneAt: q.DoneAt, Canceled: q.Canceled})
+		}
+	}
+	if !reflect.DeepEqual(base.Escrow, cur.Escrow) {
+		d.Changed = append(d.Changed, "escrow")
+		d.Escrow = make(map[string]*worldv1.Assets, len(cur.Escrow))
+		for k, v := range cur.Escrow {
+			d.Escrow[k] = assetsToProto(v)
+		}
+	}
+	if !reflect.DeepEqual(base.Settled, cur.Settled) {
+		d.Changed = append(d.Changed, "settled_trades")
+		d.SettledTrades = make(map[string]bool, len(cur.Settled))
+		for k, v := range cur.Settled {
+			d.SettledTrades[k] = v
+		}
+	}
+	return d
 }
 func (s *Service) applyPower(ctx context.Context, id uint64, power int64) error {
 	if _, err := s.dispatch(ctx, id, map[string]any{"op": "setpower", "power": power}); err != nil {

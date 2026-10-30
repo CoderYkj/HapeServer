@@ -123,18 +123,19 @@ func (r *TCPRemote) call(ctx context.Context, pid uint64, payload []byte) ([]byt
 // Handle implements gateway.Handler over the typed world link.
 func (r *TCPRemote) Handle(ctx context.Context, req world.Request) (*worldv1.Response, error) {
 	cmd := &worldv1.Command{
-		Seq:        req.Seq,
-		PlayerId:   req.PlayerID,
-		Action:     req.Action,
-		TargetId:   req.Target,
-		Gold:       req.Gold,
-		TargetGold: req.TargetGold,
-		Power:      req.Power,
-		TradeId:    req.TradeID,
-		K:          int32(req.K),
-		Season:     req.Season,
-		DefPower:   req.DefPower,
-		BattleId:   req.BattleID,
+		Seq:         req.Seq,
+		PlayerId:    req.PlayerID,
+		Action:      req.Action,
+		TargetId:    req.Target,
+		Gold:        req.Gold,
+		TargetGold:  req.TargetGold,
+		Power:       req.Power,
+		TradeId:     req.TradeID,
+		K:           int32(req.K),
+		Season:      req.Season,
+		DefPower:    req.DefPower,
+		BattleId:    req.BattleID,
+		FromVersion: req.FromVersion,
 	}
 	payload, err := proto.Marshal(cmd)
 	if err != nil {

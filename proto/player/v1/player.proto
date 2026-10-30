@@ -25,10 +25,12 @@ message HelloAck {
   string error = 2;
   uint64 state_version = 3;
   hape.world.v1.PlayerState state = 4;
+  hape.world.v1.StateDelta delta = 5;
 }
 
 // Event is a server-initiated state push.
 message Event {
   uint64 state_version = 1;
   hape.world.v1.PlayerState state = 2;
+  hape.world.v1.StateDelta delta = 3;
 }

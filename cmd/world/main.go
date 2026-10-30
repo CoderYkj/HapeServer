@@ -117,6 +117,14 @@ func main() {
 		log.Printf("season sweep: reset=%d skipped=%d", reset, skipped)
 	}
 
+	if cfg.World.Prewarm > 0 {
+		start := time.Now()
+		if err := svc.Prewarm(ctx, uint64(cfg.World.Prewarm)); err != nil {
+			log.Fatalf("prewarm: %v", err)
+		}
+		log.Printf("prewarmed %d players in %s", cfg.World.Prewarm, time.Since(start))
+	}
+
 	tcpSrv, err := link.Listen(*tcpAddr, world.NewTCPHandler(svc))
 	if err != nil {
 		log.Fatalf("tcp listen: %v", err)

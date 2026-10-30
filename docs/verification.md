@@ -962,3 +962,36 @@ p99 约 29ms，明显高于 60s 短跑的 815µs。观测上是启动阶段 1000
 
 - 这次 soak 的 bot 默认 `subscribe=false`，不触发 push；push 路径由 `TestPlayerConnPushAndResume` 单测覆盖。
 - 热路径已经是 typed protobuf，没有 `data` JSON 解包。
+## 增量验证：actor 预热 / 字段级 delta / protobuf 快照（2026-10-30）
+
+### 1. actor 预热
+
+- `world.prewarm`：启动时并发 `EnsurePlayer(1..N)`。
+- `EnsurePlayer` 改为锁外 `Spawn`：同一 ID 用 `spawning` channel 去重，不再持 `s.mu` 做 goakt Spawn。
+- 1000 玩家预热后，1k bot 的启动长尾消失。
+
+### 2. 字段级 resume
+
+- `StateDelta { from_version, state_version, changed[], resources, city, power, marches, queues, escrow, settled_trades }`。
+- 每个玩家保留最近 8 个状态版本；`Service.Delta(pid, from)` 对比字段并只填变化项。
+- `HelloAck.delta` / `Event.delta`：版本落后时优先发 delta，历史不可用才回全量 state。
+- 单测 `TestDeltaFieldLevel`：只改 resources/power，delta 的 `changed=[resources power]`，city 不出现。
+
+### 3. 快照性能
+
+- 快照编码从 JSON 改为 protobuf `PlayerStates`；`Restore` 先试 protobuf，失败回退旧 JSON。
+- `SnapshotWithOffset` 只在 `mutMu` 内复制状态 + 取 offset，JSON/protobuf 编码在锁外执行。
+- 这修掉了 1k bot 的 30–40ms p99 周期性尖刺：之前是每 10s 快照阻塞/编码。
+
+### 压测
+
+```text
+100 bot / 10s（prewarm=1000）：1451 请求，0 错误，p50 658µs，p99 1680µs
+1000 bot / 60s（prewarm=1000）：11000 请求，0 错误，p50 626µs，p99 1191µs
+```
+
+作为对照，`disableSnapshot=true` 时 1k/30s p99=1007µs，说明剩余尖刺已主要来自快照编码。
+
+### 待办
+
+1h TCP soak 是修复前的数据（718,973 请求、0 错误、p99 29ms）。prewarm + protobuf 快照后需要重跑，README 已标记“待跑”。

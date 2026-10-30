@@ -72,7 +72,7 @@ func TestPlayerConnPushAndResume(t *testing.T) {
 	}
 	select {
 	case ev := <-push:
-		if ev.StateVersion != 1 || ev.State == nil {
+		if ev.StateVersion != 1 || (ev.State == nil && ev.Delta == nil) {
 			t.Fatalf("event = %+v", ev)
 		}
 	case <-time.After(time.Second):

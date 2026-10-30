@@ -13,17 +13,18 @@ import (
 )
 
 type apiRequest struct {
-	PlayerID   uint64 `json:"playerId"`
-	Target     uint64 `json:"targetId"`
-	Action     string `json:"action"`
-	Gold       int64  `json:"gold"`
-	TargetGold int64  `json:"targetGold"`
-	Power      int64  `json:"power"`
-	TradeID    string `json:"tradeId"`
-	K          int    `json:"k"`
-	Season     uint32 `json:"season"`
-	DefPower   int64  `json:"defPower"`
-	BattleID   string `json:"battleId"`
+	PlayerID    uint64 `json:"playerId"`
+	Target      uint64 `json:"targetId"`
+	Action      string `json:"action"`
+	Gold        int64  `json:"gold"`
+	TargetGold  int64  `json:"targetGold"`
+	Power       int64  `json:"power"`
+	TradeID     string `json:"tradeId"`
+	K           int    `json:"k"`
+	Season      uint32 `json:"season"`
+	DefPower    int64  `json:"defPower"`
+	BattleID    string `json:"battleId"`
+	FromVersion uint64 `json:"fromVersion"`
 }
 
 type stats struct {

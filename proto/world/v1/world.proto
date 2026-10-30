@@ -17,6 +17,7 @@ message Command {
   uint32 season = 10;
   int64 def_power = 11;
   string battle_id = 12;
+  uint64 from_version = 13;
 }
 
 message Assets {
@@ -58,6 +59,10 @@ message PlayerState {
   map<string, bool> settled_trades = 9;
   repeated string seen_ops = 10;
   uint64 version = 11;
+}
+
+message PlayerStates {
+  repeated PlayerState players = 1;
 }
 
 message RankEntry {
@@ -107,6 +112,19 @@ message BattlePage {
   string next_id = 3;
 }
 
+message StateDelta {
+  uint64 from_version = 1;
+  uint64 state_version = 2;
+  repeated string changed = 3;
+  Assets resources = 4;
+  City city = 5;
+  int64 power = 6;
+  repeated March marches = 7;
+  repeated Queue queues = 8;
+  map<string, Assets> escrow = 9;
+  map<string, bool> settled_trades = 10;
+}
+
 message ActionStats {
   uint32 season = 1;
   int32 touched = 2;
@@ -126,5 +144,6 @@ message Response {
     Battle battle = 7;
     BattlePage battle_page = 8;
     ActionStats stats = 9;
+    StateDelta delta = 10;
   }
 }

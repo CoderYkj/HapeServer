@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/protobuf/proto"
 
@@ -36,11 +37,16 @@ func NewPlayerConnHandler(h Handler) link.ConnHandler {
 		}
 		ack := &playerv1.HelloAck{Ok: true, StateVersion: version}
 		if ok && hello.LastStateVersion != version {
-			ack.State = st
+			if d, derr := loadDelta(ctx, h, sess.PlayerID, hello.LastStateVersion); derr == nil {
+				ack.Delta = d
+			} else {
+				ack.State = st
+			}
 		}
 		if err := replyHello(c, id, ack); err != nil {
 			return
 		}
+		lastVersion := version
 
 		for {
 			id, payload, err := c.Read()
@@ -97,11 +103,17 @@ func NewPlayerConnHandler(h Handler) link.ConnHandler {
 			}
 			if hello.Subscribe && resp.Ok && isMutation(req.Action) {
 				if st, ok := h.State(ctx, sess.PlayerID); ok && st != nil {
-					ev := &playerv1.Event{StateVersion: st.Version, State: st}
+					ev := &playerv1.Event{StateVersion: st.Version}
+					if d, derr := loadDelta(ctx, h, sess.PlayerID, lastVersion); derr == nil {
+						ev.Delta = d
+					} else {
+						ev.State = st
+					}
 					b, err := proto.Marshal(ev)
 					if err != nil || c.Push(b) != nil {
 						return
 					}
+					lastVersion = st.Version
 				}
 			}
 		}
@@ -131,4 +143,19 @@ func isMutation(action string) bool {
 	default:
 		return true
 	}
+}
+
+func loadDelta(ctx context.Context, h Handler, pid, from uint64) (*worldv1.StateDelta, error) {
+	resp, err := h.Handle(ctx, world.Request{PlayerID: pid, Action: "state_delta", FromVersion: from})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || !resp.Ok {
+		return nil, errors.New("state delta unavailable")
+	}
+	d := resp.GetDelta()
+	if d == nil {
+		return nil, errors.New("state delta unavailable")
+	}
+	return d, nil
 }
