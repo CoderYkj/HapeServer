@@ -12,6 +12,7 @@ import (
 
 func main() {
 	worldURL := flag.String("world", "http://127.0.0.1:8080", "world HTTP base URL")
+	worldTCP := flag.String("world-tcp", "", "world TCP endpoint (empty = HTTP)")
 	addr := flag.String("addr", ":8081", "gateway listen address")
 	flag.Parse()
 
@@ -20,10 +21,15 @@ func main() {
 		log.Fatalf("world url: %v", err)
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	remote := gateway.NewRemote(*worldURL)
+	var handler gateway.Handler
+	if *worldTCP != "" {
+		handler = gateway.NewTCPRemote(*worldTCP)
+	} else {
+		handler = gateway.NewRemote(*worldURL)
+	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/ws", gateway.NewWS(remote))
+	mux.Handle("/ws", gateway.NewWS(handler))
 	mux.Handle("/api/command", proxy)
 	mux.Handle("/api/rank", proxy)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -31,7 +37,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	log.Printf("gateway listening on %s -> %s", *addr, *worldURL)
+	log.Printf("gateway listening on %s -> %s (tcp=%q)", *addr, *worldURL, *worldTCP)
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatal(err)
 	}

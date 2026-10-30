@@ -388,3 +388,26 @@ world :18080 + gateway :18081
 ```
 
 - README 的快速开始已改为 world + gateway 两步，bot 默认走 gateway。
+## 增量验证：自定义 TCP 长连接（2026-10-30）
+
+### 协议
+
+- 13 字节头：`[len:4][type:1][id:8]`，payload ≤ 4 MB；类型 request/reply/error/ping/pong。
+- 一个 gateway 进程对每个 world 维护一条复用连接；请求按 `id` 关联响应，支持并发在途。
+- 90s 读超时，ping/pong 保活；服务端 1024 并发请求信号量，满时返回 `server busy`。
+- 客户端调用超时/断连会关闭并重建连接，pending 请求返回 `ErrClosed`。
+
+### 接线
+
+- `cmd/world -tcp :9000` 暴露内部 link；`cmd/gateway -world-tcp 127.0.0.1:9000` 使用 TCP，否则回退 HTTP。
+- 单测：100 并发调用复用、错误帧、超时。
+
+### 压测
+
+```text
+100 WS bot / 10s：1451 请求，0 错误，p99 1357µs
+1000 WS bot / 30s：5001 请求，0 错误，p99 12173µs
+```
+
+- 1000 bot 时 p99 明显高于直连 WS（约 0.2ms），主要来自 gateway→world 单连接排队与交易多步调用；0 错误。
+- 单连接在 200 rps 下仍有余量，但 p99 需要靠连接池/批量/优先级优化。

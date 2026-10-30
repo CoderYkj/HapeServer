@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"hapeserver/internal/config"
+	"hapeserver/internal/link"
 	"hapeserver/internal/recovery"
 	"hapeserver/internal/runtime"
 	"hapeserver/internal/snapshot"
@@ -30,6 +31,7 @@ type apiResponse struct {
 func main() {
 	cfgPath := flag.String("config", "configs/default.json", "config file")
 	addr := flag.String("addr", ":8080", "HTTP listen address")
+	tcpAddr := flag.String("tcp", ":9000", "internal TCP listen address")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -87,6 +89,18 @@ func main() {
 		log.Fatalf("recover: %v", err)
 	}
 	log.Printf("recovered shard=%d wal_offset=%d", cfg.World.ID, last)
+
+	tcpSrv, err := link.Listen(*tcpAddr, world.NewTCPHandler(svc))
+	if err != nil {
+		log.Fatalf("tcp listen: %v", err)
+	}
+	defer func() { _ = tcpSrv.Close() }()
+	go func() {
+		if err := tcpSrv.Serve(ctx); err != nil {
+			log.Printf("tcp server stopped: %v", err)
+		}
+	}()
+	log.Printf("world tcp listening on %s", tcpSrv.Addr())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

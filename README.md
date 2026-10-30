@@ -47,6 +47,7 @@
 | H02 WS 压测 | 完成 | 1000 WS 连接 / 30s：5001 请求、0 错误、p99 532µs |
 | WS 推送/续传 | 完成 | subscribe 后推 push；resume 返回 stateVersion 与完整状态 |
 | 独立 gateway | 完成 | cmd/gateway 唯一 WS 入口；world /ws 已移除 |
+| 自定义 TCP link | 完成 | 帧协议/多路复用/超时；1k WS 30s 0 错误 |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |
