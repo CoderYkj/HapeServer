@@ -45,6 +45,7 @@
 | G04 失败注入 | 完成 | 创建失败、接受冲突、部分结算、过期对账 |
 | H02 世界 API | 完成 | HTTP /api/command + WebSocket /ws；dev token 鉴权 |
 | H02 WS 压测 | 完成 | 1000 WS 连接 / 30s：5001 请求、0 错误、p99 532µs |
+| WS 推送/续传 | 完成 | subscribe 后推 push；resume 返回 stateVersion 与完整状态 |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |

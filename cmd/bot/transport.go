@@ -62,9 +62,10 @@ func (t *transport) trade(a, b uint64) error {
 }
 
 type wsClient struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
-	seq  uint64
+	conn    *websocket.Conn
+	mu      sync.Mutex
+	seq     uint64
+	version uint64
 }
 
 func dialWS(base string, pid uint64) (*wsClient, error) {
@@ -75,7 +76,29 @@ func dialWS(base string, pid uint64) (*wsClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &wsClient{conn: conn}, nil
+	c := &wsClient{conn: conn}
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.WriteJSON(map[string]any{"type": "resume", "playerId": pid}); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var resumed struct {
+		Type         string `json:"type"`
+		OK           bool   `json:"ok"`
+		StateVersion uint64 `json:"stateVersion"`
+		Error        string `json:"error"`
+	}
+	if err := conn.ReadJSON(&resumed); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	if resumed.Type != "resume" || !resumed.OK {
+		_ = conn.Close()
+		return nil, fmt.Errorf("resume failed: %s", resumed.Error)
+	}
+	c.version = resumed.StateVersion
+	return c, nil
 }
 
 func (c *wsClient) do(req apiRequest) (json.RawMessage, error) {
@@ -88,19 +111,30 @@ func (c *wsClient) do(req apiRequest) (json.RawMessage, error) {
 		return nil, err
 	}
 	_ = c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	var out struct {
-		Seq   uint64          `json:"seq"`
-		OK    bool            `json:"ok"`
-		Data  json.RawMessage `json:"data"`
-		Error string          `json:"error"`
+	for {
+		var out struct {
+			Type         string          `json:"type"`
+			Seq          uint64          `json:"seq"`
+			OK           bool            `json:"ok"`
+			StateVersion uint64          `json:"stateVersion"`
+			Data         json.RawMessage `json:"data"`
+			Error        string          `json:"error"`
+		}
+		if err := c.conn.ReadJSON(&out); err != nil {
+			return nil, err
+		}
+		if out.Type == "push" {
+			c.version = out.StateVersion
+			continue
+		}
+		if out.Type != "" && out.Type != "response" {
+			continue
+		}
+		if !out.OK {
+			return nil, fmt.Errorf("%s", out.Error)
+		}
+		return out.Data, nil
 	}
-	if err := c.conn.ReadJSON(&out); err != nil {
-		return nil, err
-	}
-	if !out.OK {
-		return nil, fmt.Errorf("%s", out.Error)
-	}
-	return out.Data, nil
 }
 
 func (c *wsClient) close() { _ = c.conn.Close() }

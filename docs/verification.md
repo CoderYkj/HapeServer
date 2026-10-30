@@ -309,3 +309,31 @@ end  =2026-10-30T14:24:25+08:00
 
 - 还没有服务端主动 push 与 `stateVersion` 断线补差；当前是请求-响应。
 - 网关仍在 world 进程内，未拆成独立 `cmd/gateway`；P1 再拆。
+## 增量验证：WS 推送与 stateVersion 续传（2026-10-30）
+
+### 协议
+
+- 客户端可发 `{"type":"subscribe"}`；之后每条命令的 response 后追加一条 `{"type":"push","stateVersion":N,"data":<PlayerState>}`。
+- 连接建立后可发 `{"type":"resume","playerId":N}`；服务端返回 `{"type":"resume","ok":true,"stateVersion":N,"data":<PlayerState>}`。
+- 新玩家 resume 返回 `stateVersion=0`、无 data，第一条命令时再创建。
+- 玩家不匹配仍返回 `type:"error"`。
+
+### 测试
+
+- `TestWSPushAndResume`：subscribe → 命令 → response → push（stateVersion=3）；新连接 resume 得到同一版本与状态。
+- `TestWSCommand` / `TestWSRejectsOtherPlayer` 保持通过。
+
+### 压测
+
+```text
+100 bot / 10s：1451 请求，0 错误，p99 215µs
+1000 bot / 30s：5001 请求，0 错误，p99 191µs
+```
+
+- bot 建连后先做 resume 握手，再进入请求循环；push 被客户端识别并跳过，不会污染请求响应。
+- 1000 条持久连接，同机压测。
+
+### 当前限制
+
+- `resume` 目前总是返回完整状态（full sync），还没有基于 `stateVersion` 的增量补差；协议字段已预留。
+- push 只在订阅连接上、命令之后触发；没有独立的状态变更广播总线。
