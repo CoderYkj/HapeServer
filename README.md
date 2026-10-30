@@ -47,7 +47,7 @@
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |
-| H05 1k bot | 冒烟完成 | 1000 bot / 30s：5001 请求、0 错误、p99 780µs |
+| H05 1k bot | 1h soak 完成 | 719,001 请求、0 错误、p50 32µs、p99 1.5ms |
 | C06 崩溃注入 | 完成 | 截断快照回退、tmp 忽略、WAL 边界/坏记录；进程级快照损坏回退 |
 
 ## 目录
