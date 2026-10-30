@@ -238,3 +238,31 @@ bots=1000 total=5001 ok=5001 err=0 err_rate=0.0000 p50=0us p99=780us
 
 - HTTP 不是最终 WebSocket 网关；1k 是短时冒烟，不是 1h 验收。
 - 无 Mongo 实例，交易持久化分支未做真实集成。
+## 增量验证：C06 崩溃注入（2026-10-30）
+
+### 单元测试
+
+- `TestTruncatedNewestFallsBack`：最新快照截断到 10 字节，`LoadLatest` 回退上一代。
+- `TestTmpFileIgnored`：只存在 `.tmp` 半写文件时返回 `ErrNoSnapshot`。
+- `TestAllGenerationsCorrupt`：全部代际损坏时返回 `ErrCorrupt`。
+- `TestBoundarySkipsSnapshotOffset`：快照 offset=2、WAL 记录 1/2/3，只回放 3。
+- `TestCorruptRecordStops`：WAL 中间出现坏 JSON，恢复在坏记录处停止，不应用后续记录。
+
+### 进程级快照损坏
+
+```text
+1. 启动 world（memory WAL）
+2. grant 50  → 等 10s 快照（gold=1050）
+3. grant 25  → 等 10s 快照（gold=1075）
+4. kill -9
+5. 把最新一代快照截断到 10 字节
+6. 重启 world
+7. state player=1
+```
+
+结果：`gold=1050`，world 自动回退到上一代快照并正常启动。
+
+### 说明
+
+- JetStream 的消息是整条投递的，不存在「半条 WAL 消息」；半写风险主要在快照文件层，已覆盖。
+- 坏 WAL 记录会让恢复返回错误并停在最后一条完整记录，不会静默跳过。
