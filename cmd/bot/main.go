@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"hapegateway/link"
+	"github.com/CoderYkj/HapeGateway/link"
 )
 
 type apiRequest struct {

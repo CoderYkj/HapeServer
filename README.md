@@ -51,7 +51,7 @@
 | 快照编码 | 完成 | protobuf PlayerStates，不再兼容旧 JSON |
 | 1h TCP soak（新版） | 待跑 | 旧版 p99 29ms；prewarm+pb 快照后需重跑 |
 | 玩家推送/续传 | 完成 | Hello/Subscribe/Event；字段级 StateDelta resume |
-| 独立 gateway | 完成 | 拆到 `D:\HapeGateway`（module hapegateway），本仓通过 replace 复用 |
+| 独立 gateway | 完成 | 拆到 `github.com/CoderYkj/HapeGateway`，本仓通过 replace 复用 |
 | 自定义 TCP link | 完成 | 帧协议/多路复用/超时；gateway→world |
 | TCP 连接池 | 完成 | -tcp-pool 默认 4，按请求轮询 |
 | 交易走 TCP | 完成 | 双方各自玩家连接；1k 30s p99 1.17ms |
@@ -107,17 +107,18 @@ internal/
   rank/           RankKey / RankOrder / 榜单
   trade/          交易状态机
   observability/  指标
-../HapeGateway/   独立 gateway 模块（hapegateway）\ndocs/             架构与 P0 计划
+../HapeGateway/   独立 gateway 模块（github.com/CoderYkj/HapeGateway）
+docs/             架构与 P0 计划
 deploy/k8s/       P1 部署清单（占位）
 test/             压测与模拟（占位）
 ```
 
 ## Gateway 独立模块
 
-- 独立仓库：`D:\HapeGateway`，Go module `hapegateway`。
+- 独立仓库：`https://github.com/CoderYkj/HapeGateway`（本地 `D:\HapeGateway`），module `github.com/CoderYkj/HapeGateway`。
 - 包含：`link` 帧协议、`protocol/playerv1` + `protocol/worldv1`、`gateway` 玩家连接/推送/池化 backend、`cmd/gateway`。
-- HapeServer 通过 `replace hapegateway => ../HapeGateway` 复用；CI 需要把两个仓库并排 checkout。
-- 启动：`go run hapegateway/cmd/gateway -addr :9001 -world-tcp 127.0.0.1:9000`。
+- HapeServer 通过 `replace github.com/CoderYkj/HapeGateway => ../HapeGateway` 复用；发布 tag 后可去掉 replace。
+- 启动：`go run github.com/CoderYkj/HapeGateway/cmd/gateway -addr :9001 -world-tcp 127.0.0.1:9000`。
 
 ## 快速开始
 

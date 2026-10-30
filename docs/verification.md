@@ -1025,3 +1025,50 @@ hapeserver:  go vet ./... / go test ./...   PASS
 ### CI 注意
 
 `replace` 指向本地 `../HapeGateway`，GitHub Actions 需要把两个仓库并排 checkout，否则 HapeServer 的 CI 无法解析模块。
+## Gateway 指标/优雅退出与发布（2026-10-31）
+
+### 发布
+
+- 仓库：`https://github.com/CoderYkj/HapeGateway`
+- module：`github.com/CoderYkj/HapeGateway`
+- 已 push `master`：`62b57fa` initial、`957eb80` metrics/graceful、`9a52afe` module path。
+- HapeServer `go.mod`：
+  ```
+  require github.com/CoderYkj/HapeGateway v0.0.0
+  replace github.com/CoderYkj/HapeGateway => ../HapeGateway
+  ```
+
+### 指标
+
+`GET :8081/metrics`：
+
+```text
+hapegateway_connections_total
+hapegateway_connections_active
+hapegateway_auth_failures_total
+hapegateway_commands_total
+hapegateway_command_errors_total
+hapegateway_pushes_total
+hapegateway_backend_errors_total
+```
+
+- 连接数、鉴权失败、命令/错误、push 计数。
+- 100 bot 冒烟后：connections_total=101（100 bot + readiness），commands_total=1460，0 errors。
+
+### 优雅退出
+
+- `link.PlayerServer.Shutdown(ctx)`：停止 accept、关闭活跃连接、等待 handler 退出，超时返回 ctx 错误。
+- `cmd/gateway` 监听 SIGINT/SIGTERM；先停 player TCP，再 `http.Server.Shutdown`，总超时 5s。
+- 单测 `TestPlayerServerShutdown` 覆盖重复 Shutdown。
+
+### 验证
+
+```text
+hapegateway: go vet ./... / go test ./...  PASS
+hapeserver:  go vet ./... / go test ./...  PASS
+100 bot / 10s：1451 请求，0 错误，p99 2021µs
+```
+
+### 待讨论
+
+模块消费方式仍未定：本地 `replace`、tagged module、git submodule、或再抽 `hapeproto`。CI 目前仍需两个仓库并排 checkout。

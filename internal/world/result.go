@@ -4,7 +4,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"hapeserver/internal/battle"
-	"hapegateway/protocol/worldv1"
+	"github.com/CoderYkj/HapeGateway/protocol/worldv1"
 	"hapeserver/internal/rank"
 	"hapeserver/internal/trade"
 )
