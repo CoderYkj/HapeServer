@@ -1147,3 +1147,38 @@ HapeServer:  go test ./...  PASS
   HapeServer:  go build ./... PASS
   ```
 - 本地开发继续使用不提交的 `go.work`（version-specific replace），不进入 CI。
+## 70 分钟 HapeServer 压测（2026-10-31）
+
+### 配置
+
+- 1000 bot，0.2 次/秒，原生 TCP + protobuf 全链路。
+- HapeGateway 独立二进制，world `prewarm=1000`，protobuf 快照，memory WAL。
+- 压测机与 server 同机。
+
+### 结果
+
+```text
+bots=1000 total=839000 ok=839000 err=0 err_rate=0.0000 p50=0us p99=695us
+02:41:40 → 03:51
+```
+
+- gateway 62 分钟采样：`commands_total=757596`、`connections_active=1000`、`command_errors_total=0`。
+- bot / gateway RSS 稳定在 147–152MB。
+- **world RSS 从 262MB 涨到 466MB**，随请求线性增长。
+
+### 根因与修复
+
+- `SeenOps` 每个玩家无上限追加；`captureState` 又把完整 `SeenOps` 复制进 8 个历史版本，形成 O(请求数 × 历史深度) 的内存增长。
+- 修复：
+  1. `SeenOps` 上限 1024，超出保留最近 1024 条。
+  2. 状态历史使用 `cloneHistoryState`，不复制 `SeenOps`；快照仍保留（有限长度）。
+- 提交 `ec87640`。
+
+### 修复后验证（30 分钟）
+
+```text
+bots=1000 total=359000 ok=359000 err=0 p50=0us p99=674us
+15 分钟 RSS：world=184MB、gateway=152MB、bot=139MB
+```
+
+对比修复前 15–20 分钟 world 已到 262MB，修复后 184MB，增长曲线明显收敛。完整 70 分钟修复后复跑尚未执行，README 标注为下一轮 soak。

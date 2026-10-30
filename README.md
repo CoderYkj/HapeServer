@@ -49,7 +49,8 @@
 | actor 预热 | 完成 | world.prewarm + 并发 Spawn；p99 38ms→1.2ms |
 | 字段级 resume | 完成 | 版本历史 + StateDelta，只回变化字段 |
 | 快照编码 | 完成 | protobuf PlayerStates，不再兼容旧 JSON |
-| 1h TCP soak（新版） | 待跑 | 旧版 p99 29ms；prewarm+pb 快照后需重跑 |
+| 30m 修复验证 | 完成 | 359,000 请求、0 错误、p99 674µs；RSS 184MB@15m |
+| 70m TCP soak | 完成 | 839,000 请求、0 错误、p99 695µs；修复 SeenOps 内存增长 |
 | 玩家推送/续传 | 完成 | Hello/Subscribe/Event；字段级 StateDelta resume |
 | 独立 gateway | 完成 | 拆到 `github.com/CoderYkj/HapeGateway`，本仓通过 replace 复用 |
 | 自定义 TCP link | 完成 | 帧协议/多路复用/超时；gateway→world |
@@ -86,7 +87,7 @@
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |
 | H05 1k bot | 1h soak 完成 | 719,001 请求、0 错误、p50 32µs、p99 1.5ms |
-| H05 1h TCP soak | 待补 | 历史 WS 1h 通过；原生 TCP 版待重跑 |
+| H05 70m TCP soak | 完成 | 839,000 请求、0 错误、p50 0µs、p99 695µs |
 | C06 崩溃注入 | 完成 | 截断快照回退、tmp 忽略、WAL 边界/坏记录；进程级快照损坏回退 |
 
 ## 目录
