@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"hapeserver/internal/link"
+	"hapegateway/link"
 )
 
 type apiRequest struct {

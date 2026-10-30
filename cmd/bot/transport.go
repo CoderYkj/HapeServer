@@ -9,9 +9,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"hapeserver/internal/link"
-	"hapeserver/internal/protocol/playerv1"
-	"hapeserver/internal/protocol/worldv1"
+	"hapegateway/link"
+	"hapegateway/protocol/playerv1"
+	"hapegateway/protocol/worldv1"
 )
 
 type transport struct {

@@ -995,3 +995,33 @@ p99 约 29ms，明显高于 60s 短跑的 815µs。观测上是启动阶段 1000
 ### 待办
 
 1h TCP soak 是修复前的数据（718,973 请求、0 错误、p99 29ms）。prewarm + protobuf 快照后需要重跑，README 已标记“待跑”。
+## Gateway 拆分为独立模块（2026-10-31）
+
+### 新模块
+
+- `D:\HapeGateway`，Go module `hapegateway`。
+- 包结构：
+  - `link`：帧协议、复用 world client、`PlayerServer`/`Conn`。
+  - `protocol/playerv1`、`protocol/worldv1`：protobuf 契约。
+  - `gateway`：`Backend` 接口、`Authenticator`、player conn handler、`TCPBackend` 池。
+  - `cmd/gateway`：可执行入口。
+- `Backend` 只依赖 `worldv1.Command/Response`，不 import HapeServer 的 `internal/world`。
+
+### HapeServer 复用
+
+- `go.mod` 增加 `hapegateway v0.0.0` + `replace hapegateway => ../HapeGateway`。
+- 删除本仓 `cmd/gateway`、`internal/gateway`、`internal/link`、`internal/protocol`、`proto/`。
+- `cmd/world` 的内部 TCP server、`cmd/bot`、`internal/world` 改为 import `hapegateway/link` 与 `hapegateway/protocol/worldv1`。
+- Makefile：`run-gateway` 改为 `go run hapegateway/cmd/gateway`，新增 `test-gateway`。
+
+### 验证
+
+```text
+hapegateway: go vet ./... / go test ./...   PASS
+hapeserver:  go vet ./... / go test ./...   PASS
+100 bot / 10s（独立 gateway 二进制）：1451 请求，0 错误，p99 1224µs
+```
+
+### CI 注意
+
+`replace` 指向本地 `../HapeGateway`，GitHub Actions 需要把两个仓库并排 checkout，否则 HapeServer 的 CI 无法解析模块。

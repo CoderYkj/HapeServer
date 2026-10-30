@@ -13,7 +13,7 @@ import (
 	"hapeserver/internal/battle"
 	"hapeserver/internal/observability"
 
-	"hapeserver/internal/protocol/worldv1"
+	"hapegateway/protocol/worldv1"
 	"hapeserver/internal/rank"
 	"hapeserver/internal/trade"
 	"hapeserver/internal/wal"

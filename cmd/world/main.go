@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"hapeserver/internal/battle"
 	"hapeserver/internal/config"
-	"hapeserver/internal/link"
+	"hapegateway/link"
 	"hapeserver/internal/recovery"
 	"hapeserver/internal/runtime"
 	"hapeserver/internal/snapshot"

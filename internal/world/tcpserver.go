@@ -5,8 +5,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"hapeserver/internal/link"
-	"hapeserver/internal/protocol/worldv1"
+	"hapegateway/link"
+	"hapegateway/protocol/worldv1"
 )
 
 // NewTCPHandler exposes Service.Handle over the typed protobuf world link.
