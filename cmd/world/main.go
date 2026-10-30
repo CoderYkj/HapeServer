@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -49,10 +50,15 @@ func main() {
 	}
 	defer func() { _ = sys.Stop(ctx) }()
 
-	store, err := snapshot.NewStore(cfg.Storage.SnapshotDir)
+	dirs := cfg.Storage.SnapshotDirs
+	if len(dirs) == 0 {
+		dirs = []string{cfg.Storage.SnapshotDir}
+	}
+	snapSet, err := snapshot.NewReplicaSet(dirs, cfg.Storage.SnapshotQuorum)
 	if err != nil {
 		log.Fatalf("snapshot store: %v", err)
 	}
+	log.Printf("snapshot replicas=%d quorum=%d", snapSet.Replicas(), snapSet.Quorum())
 
 	var walLog wal.Log
 	switch cfg.Storage.WALKind {
@@ -105,7 +111,7 @@ func main() {
 		svc.UseBattleStore(bs)
 		log.Printf("battle store: mongodb db=%s", cfg.Storage.MongoDB)
 	}
-	last, err := recovery.Recover(store, walLog, cfg.World.ID, svc)
+	last, err := recovery.Recover(snapSet, walLog, cfg.World.ID, svc)
 	if err != nil {
 		log.Fatalf("recover: %v", err)
 	}
@@ -167,7 +173,7 @@ func main() {
 	})
 
 	stop := make(chan struct{})
-	go snapshotLoop(ctx, stop, store, svc, walLog, cfg.World.ID)
+	go snapshotLoop(ctx, stop, snapSet, svc, walLog, cfg.World.ID)
 	go reconcileLoop(ctx, stop, svc)
 	go seasonLoop(ctx, stop, svc)
 
@@ -186,14 +192,26 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
-	if payload, err := svc.Snapshot(); err == nil {
-		if _, err := store.Save(cfg.World.ID, 1, walLog.LastOffset(), payload); err != nil {
-			log.Printf("final snapshot: %v", err)
-		}
+	if err := saveSnapshot(snapSet, walLog, cfg.World.ID, svc); err != nil {
+		log.Printf("final snapshot: %v", err)
 	}
 }
 
-func snapshotLoop(ctx context.Context, stop <-chan struct{}, store *snapshot.Store, svc *world.Service, walLog wal.Log, shard uint32) {
+func saveSnapshot(set snapshot.Set, log wal.Log, shard uint32, svc *world.Service) error {
+	payload, offset, err := svc.SnapshotWithOffset()
+	if err != nil {
+		return err
+	}
+	if _, err := set.Save(shard, 1, offset, payload); err != nil {
+		return err
+	}
+	if err := log.Truncate(offset + 1); err != nil {
+		return fmt.Errorf("wal truncate: %w", err)
+	}
+	return nil
+}
+
+func snapshotLoop(ctx context.Context, stop <-chan struct{}, snapSet snapshot.Set, svc *world.Service, walLog wal.Log, shard uint32) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
 	for {
@@ -201,11 +219,7 @@ func snapshotLoop(ctx context.Context, stop <-chan struct{}, store *snapshot.Sto
 		case <-stop:
 			return
 		case <-t.C:
-			payload, err := svc.Snapshot()
-			if err != nil {
-				continue
-			}
-			if _, err := store.Save(shard, 1, walLog.LastOffset(), payload); err != nil {
+			if err := saveSnapshot(snapSet, walLog, shard, svc); err != nil {
 				log.Printf("snapshot: %v", err)
 			}
 			_ = ctx

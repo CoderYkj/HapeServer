@@ -3,6 +3,7 @@ package wal
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -22,6 +23,9 @@ type JetStream struct {
 	js      nats.JetStreamContext
 	stream  string
 	subject string
+
+	tmu    sync.Mutex
+	purged uint64
 }
 
 // OpenJetStream connects, creating the stream on first use.
@@ -97,11 +101,20 @@ func (w *JetStream) Replay(fn func(offset uint64, record []byte) error) error {
 // messages one by one; replace with a stream purge when the WAL rotation
 // policy lands.
 func (w *JetStream) Truncate(before uint64) error {
-	for seq := uint64(1); seq < before; seq++ {
+	w.tmu.Lock()
+	defer w.tmu.Unlock()
+	start := uint64(1)
+	if w.purged > 0 {
+		start = w.purged + 1
+	}
+	for seq := start; seq < before; seq++ {
 		if err := w.js.DeleteMsg(w.stream, seq); err != nil {
 			// Missing/already-deleted messages are fine.
 			continue
 		}
+	}
+	if before > 0 {
+		w.purged = before - 1
 	}
 	return nil
 }

@@ -643,3 +643,41 @@ PASS
 - 新增 `reconcile_alerts_total`，每次有失败的对账轮次 +1；`reconcile_last_error_count` 保留最近一轮失败数。
 - `cmd/world` 注册 hook，输出 `ALERT reconcile failures=N first=...`。
 - 说明：告警是进程内 hook，P1 接 Prometheus Alertmanager/日志采集。
+## 增量验证：RF=3 快照与 WAL 截断（2026-10-30）
+
+### RF=3 快照
+
+- `snapshot.ReplicaSet`：对 N 个本地目录写入，quorum 默认 `N/2+1`；读取时选 `WALOffset` 最大的有效副本。
+- 单副本损坏时自动回退其他副本；副本全坏返回 `ErrCorrupt`，全空返回 `ErrNoSnapshot`。
+- `storage.snapshotDirs` + `storage.snapshotQuorum` 配置；未配置时回退单目录。
+- 测试：
+  - `TestReplicaSetSaveAndLoad`：3 副本写入、最高 offset 优先、损坏后回退。
+  - `TestReplicaSetQuorum`：只剩 1 个可写副本时 Save 返回 quorum 错误。
+
+### 快照 offset 一致性
+
+- 新增 `Service.SnapshotWithOffset`：用 `mutMu` 屏障阻塞所有变更动作，读取状态与 `wal.LastOffset()` 后一起返回，避免「快照状态旧、offset 新」导致截断丢记录。
+- `Handle` 对变更动作持读锁；`Reconcile` 自持读锁；快照持写锁。
+- `saveSnapshot`：保存成功后才 `Truncate(offset+1)`，失败不截断。
+
+### WAL 截断
+
+- Memory WAL 修复了截断后 offset 归零的 bug：现在保留绝对 offset，`Truncate(2)` 后 `LastOffset=2`，追加返回 3。
+- JetStream 截断改为从上次已删除位置增量删除，避免每次 O(n) 扫描。
+- `TestRecoverAfterTruncate`：快照 offset=2、截断后只回放 3/4。
+- `TestJetStreamRoundTrip` 增加截断后的 offset 断言（2、3，LastOffset 仍为 3）。
+
+### 冒烟
+
+```text
+3 个 snapshotDirs，每目录 1 个快照
+grant 50 → 10s 快照 → kill -9 → 重启
+state.player1.gold = 1050
+```
+
+JetStream WAL + RF=3 组合同样通过。
+
+### 边界
+
+- 3 个目录目前在同一块磁盘，属于**逻辑 RF=3**；真实 RF=3 需要 3 块独立 NVMe/节点，P1 再接远端副本或对象存储。
+- 本地 `-race` 因 cgo 未启用跑不了；CI 的 race job 继续覆盖。

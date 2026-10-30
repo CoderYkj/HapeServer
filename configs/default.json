@@ -9,6 +9,8 @@
   },
   "storage": {
     "snapshotDir": "./data/snapshots",
+    "snapshotDirs": [],
+    "snapshotQuorum": 0,
     "walDir": "./data/wal",
     "walKind": "memory",
     "natsUrl": "nats://127.0.0.1:4222",

@@ -15,10 +15,15 @@ type Applier interface {
 	ApplyRecord(offset uint64, record []byte) error
 }
 
+// Loader loads the newest valid snapshot for a shard.
+type Loader interface {
+	LoadLatest(shard uint32) (snapshot.Header, []byte, string, error)
+}
+
 // Recover loads the newest valid snapshot for shard (if any), applies it,
 // then replays WAL records after the snapshot's WAL offset. It returns the
 // last applied WAL offset.
-func Recover(store *snapshot.Store, log wal.Log, shard uint32, applier Applier) (uint64, error) {
+func Recover(store Loader, log wal.Log, shard uint32, applier Applier) (uint64, error) {
 	start := uint64(0)
 	h, payload, _, err := store.LoadLatest(shard)
 	switch {

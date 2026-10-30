@@ -68,6 +68,9 @@
 | 战斗历史分页 | 完成 | (createdAt,_id) 复合游标 |
 | 赛季奖励配置 | 完成 | season.rewards 模板，支持自定义区间 |
 | 对账告警 | 完成 | econcile_alerts_total + 日志 hook |
+| RF=3 快照 | 完成 | 3 副本 + quorum 2；本地目录模拟 |
+| WAL 截断 | 完成 | 快照后按 offset 截断，Memory/JetStream 保序 |
+| 快照原子 offset | 完成 | mutation barrier + SnapshotWithOffset |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |

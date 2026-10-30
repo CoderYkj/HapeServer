@@ -18,6 +18,7 @@ type Log interface {
 // Memory is a process-local Log.
 type Memory struct {
 	mu      sync.RWMutex
+	base    uint64
 	records [][]byte
 }
 
@@ -30,7 +31,7 @@ func (m *Memory) Append(record []byte) (uint64, error) {
 	cp := make([]byte, len(record))
 	copy(cp, record)
 	m.records = append(m.records, cp)
-	return uint64(len(m.records)), nil
+	return m.base + uint64(len(m.records)), nil
 }
 
 func (m *Memory) Replay(fn func(offset uint64, record []byte) error) error {
@@ -39,7 +40,7 @@ func (m *Memory) Replay(fn func(offset uint64, record []byte) error) error {
 	copy(cp, m.records)
 	m.mu.RUnlock()
 	for i, r := range cp {
-		if err := fn(uint64(i+1), r); err != nil {
+		if err := fn(m.base+uint64(i+1), r); err != nil {
 			return err
 		}
 	}
@@ -49,18 +50,24 @@ func (m *Memory) Replay(fn func(offset uint64, record []byte) error) error {
 func (m *Memory) Truncate(before uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if before == 0 {
+	if before == 0 || before <= m.base+1 {
 		return nil
 	}
-	if before > uint64(len(m.records)) {
-		before = uint64(len(m.records))
+	last := m.base + uint64(len(m.records))
+	if before > last+1 {
+		before = last + 1
 	}
-	m.records = append([][]byte(nil), m.records[before-1:]...)
+	drop := before - 1 - m.base
+	if drop > uint64(len(m.records)) {
+		drop = uint64(len(m.records))
+	}
+	m.records = append([][]byte(nil), m.records[drop:]...)
+	m.base = before - 1
 	return nil
 }
 
 func (m *Memory) LastOffset() uint64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return uint64(len(m.records))
+	return m.base + uint64(len(m.records))
 }

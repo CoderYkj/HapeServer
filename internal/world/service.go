@@ -39,6 +39,8 @@ type Service struct {
 	sys actor.System
 	wal wal.Log
 
+	mutMu sync.RWMutex
+
 	mu      sync.Mutex
 	players map[uint64]*PlayerActor
 	refs    map[uint64]actor.Ref
@@ -326,6 +328,27 @@ func (s *Service) Snapshot() ([]byte, error) {
 	return json.Marshal(states)
 }
 
+// SnapshotWithOffset captures state and the matching WAL offset while no
+// mutation is in flight, so replay never double-applies or skips a record.
+func (s *Service) SnapshotWithOffset() ([]byte, uint64, error) {
+	s.mutMu.Lock()
+	defer s.mutMu.Unlock()
+	payload, err := s.Snapshot()
+	if err != nil {
+		return nil, 0, err
+	}
+	return payload, s.wal.LastOffset(), nil
+}
+
+func readOnlyAction(action string) bool {
+	switch action {
+	case "state", "rank", "top", "battle_get", "battle_history", "trade_get", "reconcile":
+		return true
+	default:
+		return false
+	}
+}
+
 // Restore recreates player actors from a snapshot payload.
 func (s *Service) Restore(ctx context.Context, payload []byte) error {
 	var states []PlayerState
@@ -420,6 +443,10 @@ type Request struct {
 // Handle dispatches one API action.
 func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
 	s.metrics.Commands.Add(1)
+	if !readOnlyAction(req.Action) {
+		s.mutMu.RLock()
+		defer s.mutMu.RUnlock()
+	}
 	data, err := s.handle(ctx, req)
 	if err != nil {
 		s.metrics.Errors.Add(1)
@@ -594,6 +621,8 @@ func (e *escrowAdapter) Settle(ctx context.Context, pid uint64, tradeID string, 
 
 // Reconcile resumes non-terminal trades (settling or expired).
 func (s *Service) Reconcile(ctx context.Context, limit int64) (int, error) {
+	s.mutMu.RLock()
+	defer s.mutMu.RUnlock()
 	res, err := s.trade.ReconcileDetailed(ctx, limit)
 	s.metrics.ReconcileRuns.Add(1)
 	if err != nil {

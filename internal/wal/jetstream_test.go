@@ -35,7 +35,9 @@ func TestJetStreamRoundTrip(t *testing.T) {
 	}
 
 	var records []string
-	if err := w.Replay(func(_ uint64, r []byte) error {
+	var offsets []uint64
+	if err := w.Replay(func(off uint64, r []byte) error {
+		offsets = append(offsets, off)
 		records = append(records, string(r))
 		return nil
 	}); err != nil {
@@ -44,12 +46,17 @@ func TestJetStreamRoundTrip(t *testing.T) {
 	if len(records) != 3 || records[0] != "a" || records[2] != "c" {
 		t.Fatalf("records = %v", records)
 	}
+	if len(offsets) != 3 || offsets[0] != 1 || offsets[2] != 3 {
+		t.Fatalf("offsets = %v", offsets)
+	}
 
 	if err := w.Truncate(2); err != nil {
 		t.Fatal(err)
 	}
 	records = nil
-	if err := w.Replay(func(_ uint64, r []byte) error {
+	offsets = nil
+	if err := w.Replay(func(off uint64, r []byte) error {
+		offsets = append(offsets, off)
 		records = append(records, string(r))
 		return nil
 	}); err != nil {
@@ -57,5 +64,11 @@ func TestJetStreamRoundTrip(t *testing.T) {
 	}
 	if len(records) != 2 || records[0] != "b" {
 		t.Fatalf("after truncate = %v", records)
+	}
+	if len(offsets) != 2 || offsets[0] != 2 || offsets[1] != 3 {
+		t.Fatalf("offsets after truncate = %v", offsets)
+	}
+	if got := w.LastOffset(); got != 3 {
+		t.Fatalf("last offset after truncate = %d", got)
 	}
 }
