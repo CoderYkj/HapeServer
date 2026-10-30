@@ -37,6 +37,8 @@ type Envelope struct {
 	Epoch    uint32
 	Deadline int64
 	Payload  []byte
+	// Reply carries the response channel for Ask. It never crosses a wire.
+	Reply chan *Envelope `json:"-"`
 }
 
 // Actor processes one envelope at a time.
@@ -55,6 +57,8 @@ type Context interface {
 	Schedule(d time.Duration, env *Envelope) TimerID
 	Cancel(id TimerID)
 	Now() time.Time
+	// Respond answers the current Ask, if any.
+	Respond(env *Envelope) error
 }
 
 // System spawns and routes actors.

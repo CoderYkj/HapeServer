@@ -45,6 +45,7 @@ type PlayerState struct {
 	SeasonID  uint32            `json:"seasonId"`
 	Resources Assets            `json:"resources"`
 	City      CityState         `json:"city"`
+	Power     int64             `json:"power"`
 	Marches   []March           `json:"marches"`
 	Queues    []Queue           `json:"queues"`
 	Escrow    map[string]Assets `json:"escrow"`
@@ -68,7 +69,7 @@ func NewPlayer(id uint64, season uint32) *PlayerActor {
 	}}
 }
 
-func (p *PlayerActor) Receive(_ actor.Context, env *actor.Envelope) {
+func (p *PlayerActor) Receive(ctx actor.Context, env *actor.Envelope) {
 	switch env.Kind {
 	case actor.KindPing:
 		p.State.Version++
@@ -76,6 +77,7 @@ func (p *PlayerActor) Receive(_ actor.Context, env *actor.Envelope) {
 		var cmd struct {
 			Op      string `json:"op"`
 			Gold    int64  `json:"gold"`
+			Power   int64  `json:"power"`
 			TradeID string `json:"tradeId"`
 			Assets  Assets `json:"assets"`
 		}
@@ -86,17 +88,32 @@ func (p *PlayerActor) Receive(_ actor.Context, env *actor.Envelope) {
 			return
 		}
 		p.State.SeenOps = append(p.State.SeenOps, env.OpID)
+		resp := map[string]any{"ok": true}
 		switch cmd.Op {
 		case "grant":
 			p.State.Resources.Gold += cmd.Gold
+		case "setpower":
+			p.State.Power = cmd.Power
+			resp["power"] = p.State.Power
 		case "lock":
-			_ = p.LockEscrow(cmd.TradeID, cmd.Assets)
+			if err := p.LockEscrow(cmd.TradeID, cmd.Assets); err != nil {
+				resp["ok"] = false
+				resp["error"] = err.Error()
+			}
 		case "refund":
-			_ = p.RefundEscrow(cmd.TradeID)
+			if err := p.RefundEscrow(cmd.TradeID); err != nil {
+				resp["ok"] = false
+				resp["error"] = err.Error()
+			}
 		case "settle":
-			_ = p.SettleEscrow(cmd.TradeID, cmd.Assets)
+			if err := p.SettleEscrow(cmd.TradeID, cmd.Assets); err != nil {
+				resp["ok"] = false
+				resp["error"] = err.Error()
+			}
 		}
 		p.State.Version++
+		b, _ := json.Marshal(resp)
+		_ = ctx.Respond(&actor.Envelope{Kind: actor.KindPong, Payload: b})
 	}
 }
 

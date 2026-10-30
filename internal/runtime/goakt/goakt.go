@@ -145,6 +145,14 @@ func (c *contextImpl) Cancel(id actor.TimerID) {
 
 func (c *contextImpl) Now() time.Time { return time.Now() }
 
+func (c *contextImpl) Respond(env *actor.Envelope) error {
+	if c.rc == nil {
+		return actor.ErrUnsupported
+	}
+	c.rc.Response(env)
+	return nil
+}
+
 func hashID(id string) uint64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(id))

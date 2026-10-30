@@ -70,7 +70,9 @@ func (s *System) loop(ref actor.Ref, b *box) {
 		case <-b.done:
 			return
 		case env := <-b.ch:
+			ctx.env = env
 			b.a.Receive(ctx, env)
+			ctx.env = nil
 		}
 	}
 }
@@ -90,13 +92,38 @@ func (s *System) Tell(_ context.Context, dst actor.Ref, env *actor.Envelope) err
 	}
 }
 
-func (s *System) Ask(context.Context, actor.Ref, *actor.Envelope, time.Duration) (*actor.Envelope, error) {
-	return nil, actor.ErrUnsupported
+func (s *System) Ask(ctx context.Context, dst actor.Ref, env *actor.Envelope, timeout time.Duration) (*actor.Envelope, error) {
+	s.mu.RLock()
+	b := s.boxes[dst]
+	s.mu.RUnlock()
+	if b == nil {
+		return nil, actor.ErrNotFound
+	}
+	reply := make(chan *actor.Envelope, 1)
+	env.Reply = reply
+	select {
+	case b.ch <- env:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return nil, actor.ErrBusy
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case r := <-reply:
+		return r, nil
+	case <-timer.C:
+		return nil, actor.ErrTimeout
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 type contextImpl struct {
 	sys  *System
 	self actor.Ref
+	env  *actor.Envelope
 }
 
 func (c *contextImpl) Self() actor.Ref { return c.self }
@@ -105,8 +132,20 @@ func (c *contextImpl) Tell(dst actor.Ref, env *actor.Envelope) error {
 	return c.sys.Tell(context.Background(), dst, env)
 }
 
-func (c *contextImpl) Ask(context.Context, actor.Ref, *actor.Envelope, time.Duration) (*actor.Envelope, error) {
-	return nil, actor.ErrUnsupported
+func (c *contextImpl) Ask(ctx context.Context, dst actor.Ref, env *actor.Envelope, timeout time.Duration) (*actor.Envelope, error) {
+	return c.sys.Ask(ctx, dst, env, timeout)
+}
+
+func (c *contextImpl) Respond(env *actor.Envelope) error {
+	if c.env == nil || c.env.Reply == nil {
+		return actor.ErrUnsupported
+	}
+	select {
+	case c.env.Reply <- env:
+		return nil
+	default:
+		return actor.ErrBusy
+	}
 }
 
 func (c *contextImpl) Schedule(d time.Duration, env *actor.Envelope) actor.TimerID {

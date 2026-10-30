@@ -43,6 +43,8 @@
 | G02 escrow | 完成 | 锁定/退款/结算幂等单测 |
 | G03 TradeService | 完成 | 创建/接受/结算/取消/对账，可从 settling/refunding 续跑 |
 | G04 失败注入 | 完成 | 创建失败、接受冲突、部分结算、过期对账 |
+| H02 世界 HTTP API | 完成 | /api/command、/api/rank；启动恢复快照 |
+| H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 
 ## 目录
 

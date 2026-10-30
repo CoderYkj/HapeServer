@@ -151,3 +151,34 @@ go test ./...   → 全部通过
 go vet ./...   → 通过
 go test ./...  → 全部通过
 ```
+## 增量验证：H02 / H03 / H04（2026-10-30）
+
+### Ask/Respond 支持
+
+- `actor.Envelope` 增加进程内 `Reply` 通道，`actor.Context` 增加 `Respond`。
+- inmem 运行时实现真正的 Ask/Respond；goakt 适配用 `ReceiveContext.Response`。
+- `PlayerActor` 通过 `ctx.Respond` 返回 `{ok,error}`，两种运行时行为一致。
+
+### 世界 HTTP API
+
+- `cmd/world` 启动 goakt 系统、快照存储和 `world.Service`。
+- `POST /api/command`：grant / setpower / rank / top / trade_create / trade_accept / trade_settle / trade_cancel。
+- `GET /api/rank?player=N`；`GET /healthz`。
+- 启动时从最新快照恢复玩家；后台每 10s 落一次快照，退出时再落一次。
+
+### 100 bot 冒烟
+
+```text
+bots=100 total=2380 ok=2380 err=0 err_rate=0.0000
+p50=2.03ms p99=30.26ms
+```
+
+- 压测机与 world 同机（i7-4980HQ），goakt 运行时。
+- 重启 world 后 `/api/rank?player=1` 仍能返回名次，快照恢复生效。
+- 快照大小约 31 KB（100 个玩家）。
+
+### 当前限制
+
+- WAL 尚未接进 `cmd/world`，恢复只依赖快照；C05 的编排已就绪，待接线。
+- 交易存储用 `trade.MemoryStore`，Mongo Repo 尚未在启动时选择。
+- 压测走 HTTP，不是最终 WebSocket 网关；1k bot 尚未跑。
