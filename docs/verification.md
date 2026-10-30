@@ -354,3 +354,26 @@ bots=1000 total=719001 ok=719001 err=0 err_rate=0.0000 p50=0us p99=1320us
 第一次 WS soak 在 60s 后出现大量连接卡死：服务端只设置了一次 60s 读超时，没有在收到消息后续期。已在每条消息后重置 deadline，修复后先跑 1000 连接 / 90s（17,001 请求、0 错误），再跑本次 1h。
 
 > p50 显示 0us 仍是本机时钟分辨率问题，以 p99 为准。
+## 增量验证：独立 gateway 进程（2026-10-30）
+
+### 拆分
+
+- `cmd/world` 保留权威状态、HTTP API、WAL/快照；`cmd/gateway` 只做接入。
+- `gateway.Remote` 把命令转发到 world 的 `POST /api/command`；`/ws` 的 resume/push 通过 `Remote.State` 取状态。
+- `/api/command` 与 `/api/rank` 用 `httputil.ReverseProxy` 透传，HTTP 客户端也可走 gateway。
+- gateway 无状态，WS 会话只存在于 gateway 进程。
+
+### 测试
+
+```text
+world :18080 + gateway :18081
+100 bot / 10s / -ws：1451 请求，0 错误，p99 2236µs
+```
+
+- gateway `healthz` 200；resume/push 经 Remote 正常工作。
+- 单测 `TestRemoteHandleAndState` 覆盖转发与状态解码。
+
+### 说明
+
+- world 目前仍保留 `/ws`（向后兼容）；下一轮可以移除，强制所有客户端走 gateway。
+- gateway 到 world 是一次 HTTP 往返；P1 可换 gRPC/长连接。

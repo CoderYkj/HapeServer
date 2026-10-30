@@ -1,48 +1,37 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 
-	"hapeserver/internal/config"
 	"hapeserver/internal/gateway"
-	"hapeserver/internal/observability"
 )
 
 func main() {
-	cfgPath := flag.String("config", "configs/default.json", "config file")
-	addr := flag.String("addr", ":8080", "http listen address")
+	worldURL := flag.String("world", "http://127.0.0.1:8080", "world HTTP base URL")
+	addr := flag.String("addr", ":8081", "gateway listen address")
 	flag.Parse()
 
-	cfg, err := config.Load(*cfgPath)
+	target, err := url.Parse(*worldURL)
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		log.Fatalf("world url: %v", err)
 	}
-
-	metrics := observability.New()
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	remote := gateway.NewRemote(*worldURL)
 
 	mux := http.NewServeMux()
+	mux.Handle("/ws", gateway.NewWS(remote))
+	mux.Handle("/api/command", proxy)
+	mux.Handle("/api/rank", proxy)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/metrics.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(metrics.Snapshot())
-	})
-	mux.HandleFunc("/session", func(w http.ResponseWriter, r *http.Request) {
-		s, err := gateway.DevToken(r.Header.Get("Authorization"))
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(s)
-	})
 
-	log.Printf("gateway listening on %s (world=%d region=%s)", *addr, cfg.World.ID, cfg.World.Region)
+	log.Printf("gateway listening on %s -> %s", *addr, *worldURL)
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatal(err)
 	}
