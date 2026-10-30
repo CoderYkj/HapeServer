@@ -101,3 +101,30 @@ go build ./...  → 通过
 go vet ./...    → 通过
 go test ./...   → 全部通过（Mongo/JetStream 集成用例在无外部服务时跳过）
 ```
+## 增量验证：F04 / C05 / G02（2026-10-30）
+
+### F04 排行重建接线
+
+- `PowerProjection` 接口 + `WorldRankActor.RebuildFrom`。
+- `MongoProjection` 读取 `player_power`（按 world 过滤）。
+- 单测：重建后名次正确、版本水位保留、重建后的旧更新仍被拒。
+
+### C05 恢复编排
+
+- `Recover`：最新有效快照 → 应用 → 只回放 `offset > snapshot.walOffset` 的 WAL 记录。
+- 无快照时回放全部 WAL；`ApplyRecord` 出错立即停止并返回最后偏移。
+- 单测覆盖：快照 + 尾部、纯 WAL、apply 失败三条路径。
+
+### G02 escrow
+
+- `PlayerActor.LockEscrow / RefundEscrow / SettleEscrow`。
+- 锁定扣减可用余额；同一 tradeID 幂等；余额不足返回 `ErrInsufficient`。
+- 退款原路返还；结算后重复 settle 不再入账；结算后退款返回 `ErrTradeClosed`。
+
+### 结果
+
+```text
+go build ./...  → 通过
+go vet ./...    → 通过
+go test ./...   → 全部通过
+```

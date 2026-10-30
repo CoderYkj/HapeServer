@@ -38,6 +38,9 @@
 | F03 WorldRankActor | 完成 | 版本去重、重建、TopK/RankOf 单测通过 |
 | C04 快照存储 | 完成 | 原子写、保留 3 代、损坏自动回退 |
 | G01 Mongo 交易仓储 | 完成 | CAS 状态迁移 + 待处理查询；集成测试需 MONGO_URL |
+| F04 排行重建接线 | 完成 | player_power 投影 + RebuildFrom 单测 |
+| C05 恢复编排 | 完成 | 快照 + WAL 尾部回放单测 |
+| G02 escrow | 完成 | 锁定/退款/结算幂等单测 |
 
 ## 目录
 

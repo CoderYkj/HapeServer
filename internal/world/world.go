@@ -48,6 +48,7 @@ type PlayerState struct {
 	Marches   []March           `json:"marches"`
 	Queues    []Queue           `json:"queues"`
 	Escrow    map[string]Assets `json:"escrow"`
+	Settled   map[string]bool   `json:"settledTrades"`
 	SeenOps   []string          `json:"seenOps"`
 	Version   uint64            `json:"version"`
 }
@@ -63,6 +64,7 @@ func NewPlayer(id uint64, season uint32) *PlayerActor {
 		PlayerID: id,
 		SeasonID: season,
 		Escrow:   make(map[string]Assets),
+		Settled:  make(map[string]bool),
 	}}
 }
 
@@ -72,8 +74,10 @@ func (p *PlayerActor) Receive(_ actor.Context, env *actor.Envelope) {
 		p.State.Version++
 	case actor.KindCommand:
 		var cmd struct {
-			Op   string `json:"op"`
-			Gold int64  `json:"gold"`
+			Op      string `json:"op"`
+			Gold    int64  `json:"gold"`
+			TradeID string `json:"tradeId"`
+			Assets  Assets `json:"assets"`
 		}
 		if err := json.Unmarshal(env.Payload, &cmd); err != nil {
 			return
@@ -82,8 +86,15 @@ func (p *PlayerActor) Receive(_ actor.Context, env *actor.Envelope) {
 			return
 		}
 		p.State.SeenOps = append(p.State.SeenOps, env.OpID)
-		if cmd.Op == "grant" {
+		switch cmd.Op {
+		case "grant":
 			p.State.Resources.Gold += cmd.Gold
+		case "lock":
+			_ = p.LockEscrow(cmd.TradeID, cmd.Assets)
+		case "refund":
+			_ = p.RefundEscrow(cmd.TradeID)
+		case "settle":
+			_ = p.SettleEscrow(cmd.TradeID, cmd.Assets)
 		}
 		p.State.Version++
 	}
