@@ -41,6 +41,8 @@
 | F04 排行重建接线 | 完成 | player_power 投影 + RebuildFrom 单测 |
 | C05 恢复编排 | 完成 | 快照 + WAL 尾部回放单测 |
 | G02 escrow | 完成 | 锁定/退款/结算幂等单测 |
+| G03 TradeService | 完成 | 创建/接受/结算/取消/对账，可从 settling/refunding 续跑 |
+| G04 失败注入 | 完成 | 创建失败、接受冲突、部分结算、过期对账 |
 
 ## 目录
 

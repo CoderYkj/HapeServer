@@ -128,3 +128,26 @@ go build ./...  → 通过
 go vet ./...    → 通过
 go test ./...   → 全部通过
 ```
+## 增量验证：G03 / G04（2026-10-30）
+
+### G03 TradeService
+
+- `Create`：锁定 A → 写文档；写失败自动退回 A。
+- `Accept`：锁定 B → `a_locked → both_locked`；CAS 失败自动退回 B。
+- `Settle`：`both_locked → settling`，双方 escrow 结算后 `→ settled`；A 已结算、B 失败时停在 settling，可重入。
+- `Cancel`：`a_locked/both_locked → refunding → refunded`，双方原路退回。
+- `Reconcile`：settling 续结算，过期单自动退款。
+
+### G04 失败注入
+
+- 创建文档失败：A 余额恢复，无残留文档。
+- 接受时 CAS 冲突：B 退款，单据仍是 a_locked。
+- 部分结算失败：第一次返回错误、状态 settling；第二次或 Reconcile 完成，且不重复入账。
+- 过期取消：双方余额恢复，状态 refunded。
+
+### 结果
+
+```text
+go vet ./...   → 通过
+go test ./...  → 全部通过
+```

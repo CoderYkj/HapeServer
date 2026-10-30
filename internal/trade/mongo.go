@@ -92,7 +92,7 @@ func (r *Repo) ListPending(ctx context.Context, limit int64) ([]Trade, error) {
 		limit = 100
 	}
 	cur, err := r.coll.Find(ctx,
-		bson.M{"state": bson.M{"$in": []State{ALocked, BothLocked}}},
+		bson.M{"state": bson.M{"$in": []State{ALocked, BothLocked, Settling, Refunding}}},
 		options.Find().SetLimit(limit),
 	)
 	if err != nil {
