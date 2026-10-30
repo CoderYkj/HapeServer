@@ -30,15 +30,16 @@ type Assets struct {
 
 // Trade is the authoritative document stored in MongoDB.
 type Trade struct {
-	ID       string `json:"_id"`
-	World    uint32 `json:"world"`
-	Season   uint32 `json:"season"`
-	A, B     uint64 `json:"a"`
-	AAssets  Assets `json:"aAssets"`
-	BAssets  Assets `json:"bAssets"`
-	State    State  `json:"state"`
-	Version  uint64 `json:"version"`
-	ExpireAt int64  `json:"expireAt"`
+	ID       string `json:"_id" bson:"_id"`
+	World    uint32 `json:"world" bson:"world"`
+	Season   uint32 `json:"season" bson:"season"`
+	A        uint64 `json:"a" bson:"a"`
+	B        uint64 `json:"b" bson:"b"`
+	AAssets  Assets `json:"aAssets" bson:"aAssets"`
+	BAssets  Assets `json:"bAssets" bson:"bAssets"`
+	State    State  `json:"state" bson:"state"`
+	Version  uint64 `json:"version" bson:"version"`
+	ExpireAt int64  `json:"expireAt" bson:"expireAt"`
 }
 
 // ErrIllegalTransition is returned for a move not in the state machine.

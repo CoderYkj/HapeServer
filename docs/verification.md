@@ -74,3 +74,30 @@ go test ./...
 
 - 本地 `nats-server 2.15.2`，JetStream 文件存储。
 - `NATS_URL=... go test ./internal/wal -run TestJetStreamRoundTrip` 通过：Append 3 条、Replay 顺序正确、Truncate(2) 后仅剩 b/c。
+## 增量验证：F03 / C04 / G01（2026-10-30）
+
+### F03 WorldRankActor
+
+- 更新带版本号：旧版本被丢弃，新版本生效。
+- `Rebuild` 用投影重建并保留版本水位，重建后的旧更新仍被拒绝。
+- `TopK` / `RankOf` 与底层跳表一致；非法 JSON 不影响状态。
+
+### C04 快照存储
+
+- 原子写：临时文件 → fsync → rename。
+- 每个 shard 保留最近 3 代，自动清理更老文件。
+- 最新快照 CRC 损坏时，`LoadLatest` 自动回退到上一代；无快照返回 `ErrNoSnapshot`。
+
+### G01 Mongo 交易仓储
+
+- `trades` 集合，`_id` 为 tradeID；`Transition` 以 `(state, version)` 做 CAS，冲突返回 `ErrConflict`。
+- `ListPending` 只返回 `a_locked` / `both_locked`。
+- 本机无 mongod，集成测试 `TestMongoRepo` 在未设置 `MONGO_URL` 时跳过；状态机与 CAS 逻辑由单测覆盖。
+
+### 结果
+
+```text
+go build ./...  → 通过
+go vet ./...    → 通过
+go test ./...   → 全部通过（Mongo/JetStream 集成用例在无外部服务时跳过）
+```

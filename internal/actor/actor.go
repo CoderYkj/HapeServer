@@ -22,6 +22,8 @@ const (
 	KindPong
 	KindCommand
 	KindEvent
+	KindRankUpdate
+	KindRankQuery
 )
 
 // Envelope is the only message shape crossing actor boundaries.

@@ -35,6 +35,9 @@
 |---|---|---|
 | F02 跳表 | 完成 | PT-01：2 万次随机操作对比排序数组 0 差异；RankOf ~0.9µs |
 | C02 JetStream WAL | 完成 | 本地 NATS 2.15.2 集成通过（Append / Replay / Truncate） |
+| F03 WorldRankActor | 完成 | 版本去重、重建、TopK/RankOf 单测通过 |
+| C04 快照存储 | 完成 | 原子写、保留 3 代、损坏自动回退 |
+| G01 Mongo 交易仓储 | 完成 | CAS 状态迁移 + 待处理查询；集成测试需 MONGO_URL |
 
 ## 目录
 
