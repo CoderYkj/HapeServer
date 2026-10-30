@@ -53,6 +53,7 @@
 | 动态 TCP 池 | 完成 | SetSize + /admin/pool；soak 中 4→8 |
 | 池按 playerID 哈希 | 完成 | 同一玩家固定槽位，减少跨连接乱序 |
 | 1h 动态池 soak | 完成 | 719,001 请求、0 错误、p50 111µs、p99 1.22ms |
+| Mongo 真实集成 | 完成 | 本机 MongoDB 7.0.14；交易重启后仍为 settled |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |

@@ -458,3 +458,32 @@ world :18080 + gateway :18081
 
 - 缩容在 P0 只用于演练；生产缩容应先排空目标槽位的在途请求，再关闭连接。
 - 哈希在池大小变化时会让部分玩家换槽，但 world 侧按 actor 串行，语义不受影响。
+## 增量验证：MongoDB 真实集成（2026-10-30）
+
+### 环境
+
+- 本机无 MongoDB，下载便携版 `mongodb-windows-x86_64-7.0.14` 到工作区缓存，`mongod --dbpath ... --port 27017` 启动。
+- 未写入仓库；CI 用 `mongo:7` service container 复现。
+
+### 单测
+
+```text
+MONGO_URL=mongodb://127.0.0.1:27017 go test ./internal/trade -run TestMongo -v
+TestMongoRepoPersistsAcrossReconnect  PASS
+TestMongoRepo                          PASS
+```
+
+- 新增 `TestMongoRepoPersistsAcrossReconnect`：创建 → 状态推进 → 关闭 repo → 重新连接 → 读回 `both_locked` / version 2。
+- CI 新增 `integration` job，带 `mongo:7` 服务和健康检查，运行 `TestMongo*`。
+
+### world 重启集成
+
+```text
+world（Mongo trade store）: create → accept → settle
+trade_get before restart: state=settled version=4
+kill -Force + 重启 world
+trade_get after restart:  state=settled version=4
+```
+
+- 交易文档真实落到 MongoDB，进程重启后仍可读回。
+- 本次用 memory WAL，玩家状态重启后会重建；交易文档持久化是独立验证的。生产应与 JetStream WAL/快照组合使用。

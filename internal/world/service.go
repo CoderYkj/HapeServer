@@ -252,6 +252,8 @@ func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
 		return nil, s.TradeSettle(ctx, req.TradeID)
 	case "trade_cancel":
 		return nil, s.TradeCancel(ctx, req.TradeID)
+	case "trade_get":
+		return s.trade.Get(ctx, req.TradeID)
 	default:
 		return nil, fmt.Errorf("unknown action %q", req.Action)
 	}
