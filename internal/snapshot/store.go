@@ -86,7 +86,11 @@ func (s *Store) LoadLatest(shard uint32) (Header, []byte, string, error) {
 		return Header{}, nil, "", ErrNoSnapshot
 	}
 	var lastErr error = ErrNoSnapshot
-	for i := len(files) - 1; i >= 0; i-- {
+	var best Header
+	var bestPayload []byte
+	var bestPath string
+	found := false
+	for i := range files {
 		b, err := os.ReadFile(files[i].path)
 		if err != nil {
 			lastErr = err
@@ -97,7 +101,12 @@ func (s *Store) LoadLatest(shard uint32) (Header, []byte, string, error) {
 			lastErr = err
 			continue
 		}
-		return h, payload, files[i].path, nil
+		if !found || h.WALOffset > best.WALOffset || (h.WALOffset == best.WALOffset && h.Epoch > best.Epoch) {
+			best, bestPayload, bestPath, found = h, payload, files[i].path, true
+		}
+	}
+	if found {
+		return best, bestPayload, bestPath, nil
 	}
 	return Header{}, nil, "", fmt.Errorf("no valid snapshot: %w", lastErr)
 }

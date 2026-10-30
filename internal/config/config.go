@@ -28,16 +28,19 @@ type World struct {
 }
 
 type Storage struct {
-	SnapshotDir    string   `json:"snapshotDir"`
-	SnapshotDirs   []string `json:"snapshotDirs"`
-	SnapshotQuorum int      `json:"snapshotQuorum"`
-	WALDir         string   `json:"walDir"`
-	WALKind        string   `json:"walKind"` // memory | jetstream
-	NATSURL        string   `json:"natsUrl"`
-	WALStream      string   `json:"walStream"`
-	WALSubject     string   `json:"walSubject"`
-	MongoURL       string   `json:"mongoUrl"` // empty = in-memory trade store
-	MongoDB        string   `json:"mongoDb"`
+	SnapshotDir     string   `json:"snapshotDir"`
+	SnapshotDirs    []string `json:"snapshotDirs"`
+	SnapshotQuorum  int      `json:"snapshotQuorum"`
+	SnapshotPeers   []string `json:"snapshotPeers"`
+	ReplicaToken    string   `json:"replicaToken"`
+	DisableSnapshot bool     `json:"disableSnapshot"`
+	WALDir          string   `json:"walDir"`
+	WALKind         string   `json:"walKind"` // memory | jetstream
+	NATSURL         string   `json:"natsUrl"`
+	WALStream       string   `json:"walStream"`
+	WALSubject      string   `json:"walSubject"`
+	MongoURL        string   `json:"mongoUrl"` // empty = in-memory trade store
+	MongoDB         string   `json:"mongoDb"`
 }
 
 type Trade struct {

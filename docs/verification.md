@@ -681,3 +681,38 @@ JetStream WAL + RF=3 组合同样通过。
 
 - 3 个目录目前在同一块磁盘，属于**逻辑 RF=3**；真实 RF=3 需要 3 块独立 NVMe/节点，P1 再接远端副本或对象存储。
 - 本地 `-race` 因 cgo 未启用跑不了；CI 的 race job 继续覆盖。
+## 增量验证：跨进程 peer RF=3（2026-10-30）
+
+### 实现
+
+- `snapshot.ReplicaSet` 现在同时支持本地目录与远端 peer：
+  - `storage.snapshotPeers`：peer 的 HTTP base URL；
+  - `storage.replicaToken`：内部复制 token；
+  - `POST/GET /internal/snapshot`：peer 写入/读取端点。
+- 写入 quorum 覆盖本地 + peer；读取选 `WALOffset` 最大的有效副本。
+- 被动副本用 `storage.disableSnapshot: true`，只接收 peer 快照，不主动生成空快照。
+- 修了两个多写者问题：
+  1. `Store.LoadLatest` 之前按文件时间选最新，peer 写入的旧 offset 可能盖住高 offset；现在按 `WALOffset` 选最高。
+  2. peer 暂时不可达时不再被当成「快照损坏」，world 可以先于 peer 启动。
+
+### 三进程故障验证
+
+```text
+A :18100  snapshotDir=a  peers=B,C
+B :18101  snapshotDir=b  peers=A,C  disableSnapshot=true
+C :18102  snapshotDir=c  peers=A,B  disableSnapshot=true
+
+A grant 50 → 10s 快照
+replica_a=1 replica_b=1 replica_c=1
+kill A + 删除 a 目录
+重启 A（本地为空）
+state.player1.gold = 1050
+```
+
+- A 从 B/C 的 peer 副本恢复，证明快照不是只写本地。
+- 单测 `TestPeerReplication`、`TestPeerAuth`、`TestPeerQuorumFailure`、`TestStorePicksHighestOffset` 覆盖复制、鉴权、quorum 与最高 offset。
+
+### 边界
+
+- 三个 world 在同一台机器上、不同进程/目录；真实跨节点需要把 `snapshotPeers` 指向其他节点，并加 TLS/内网 ACL。
+- **WAL 还没有跨节点复制**：owner 在两次快照之间的 WAL 仍只在本机 JetStream；要做到完整 R3，需要 JetStream 3 节点集群或 WAL peer 复制。

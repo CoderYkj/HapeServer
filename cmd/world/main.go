@@ -54,11 +54,11 @@ func main() {
 	if len(dirs) == 0 {
 		dirs = []string{cfg.Storage.SnapshotDir}
 	}
-	snapSet, err := snapshot.NewReplicaSet(dirs, cfg.Storage.SnapshotQuorum)
+	snapSet, err := snapshot.NewReplicaSetWithPeers(dirs, cfg.Storage.SnapshotQuorum, cfg.Storage.SnapshotPeers, cfg.Storage.ReplicaToken)
 	if err != nil {
 		log.Fatalf("snapshot store: %v", err)
 	}
-	log.Printf("snapshot replicas=%d quorum=%d", snapSet.Replicas(), snapSet.Quorum())
+	log.Printf("snapshot replicas=%d quorum=%d peers=%d", snapSet.Replicas(), snapSet.Quorum(), len(cfg.Storage.SnapshotPeers))
 
 	var walLog wal.Log
 	switch cfg.Storage.WALKind {
@@ -141,6 +141,9 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"errors": svc.ReconcileErrors()})
 	})
+	if cfg.Storage.ReplicaToken != "" {
+		mux.HandleFunc("/internal/snapshot", snapshot.ServeReplica(snapSet.Primary(), cfg.Storage.ReplicaToken))
+	}
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(svc.Metrics().Snapshot())
@@ -173,7 +176,9 @@ func main() {
 	})
 
 	stop := make(chan struct{})
-	go snapshotLoop(ctx, stop, snapSet, svc, walLog, cfg.World.ID)
+	if !cfg.Storage.DisableSnapshot {
+		go snapshotLoop(ctx, stop, snapSet, svc, walLog, cfg.World.ID)
+	}
 	go reconcileLoop(ctx, stop, svc)
 	go seasonLoop(ctx, stop, svc)
 
@@ -192,8 +197,10 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
-	if err := saveSnapshot(snapSet, walLog, cfg.World.ID, svc); err != nil {
-		log.Printf("final snapshot: %v", err)
+	if !cfg.Storage.DisableSnapshot {
+		if err := saveSnapshot(snapSet, walLog, cfg.World.ID, svc); err != nil {
+			log.Printf("final snapshot: %v", err)
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package snapshot
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Set is a snapshot destination: one local store or a replicated set.
@@ -11,14 +12,21 @@ type Set interface {
 	LoadLatest(shard uint32) (Header, []byte, string, error)
 }
 
-// ReplicaSet writes every snapshot to N stores and requires quorum success.
+// ReplicaSet writes every snapshot to local stores and peer worlds, and
+// requires quorum success.
 type ReplicaSet struct {
 	stores []*Store
+	peers  []*peerReplica
 	quorum int
 }
 
-// NewReplicaSet opens each directory. quorum <= 0 defaults to len/2+1.
+// NewReplicaSet opens local directories with no peers.
 func NewReplicaSet(dirs []string, quorum int) (*ReplicaSet, error) {
+	return NewReplicaSetWithPeers(dirs, quorum, nil, "")
+}
+
+// NewReplicaSetWithPeers opens local directories and peer snapshot endpoints.
+func NewReplicaSetWithPeers(dirs []string, quorum int, peers []string, token string) (*ReplicaSet, error) {
 	if len(dirs) == 0 {
 		return nil, errors.New("snapshot: no replica directories")
 	}
@@ -35,22 +43,35 @@ func NewReplicaSet(dirs []string, quorum int) (*ReplicaSet, error) {
 		}
 		stores = append(stores, s)
 	}
+	rs := &ReplicaSet{stores: stores}
+	for _, base := range peers {
+		base = strings.TrimRight(strings.TrimSpace(base), "/")
+		if base == "" {
+			continue
+		}
+		rs.peers = append(rs.peers, newPeerReplica(base, token))
+	}
+	total := len(stores) + len(rs.peers)
 	if quorum <= 0 {
-		quorum = len(stores)/2 + 1
+		quorum = total/2 + 1
 	}
-	if quorum > len(stores) {
-		return nil, fmt.Errorf("snapshot: quorum %d > replicas %d", quorum, len(stores))
+	if quorum > total {
+		return nil, fmt.Errorf("snapshot: quorum %d > replicas %d", quorum, total)
 	}
-	return &ReplicaSet{stores: stores, quorum: quorum}, nil
+	rs.quorum = quorum
+	return rs, nil
 }
 
-// Replicas reports the number of stores.
-func (r *ReplicaSet) Replicas() int { return len(r.stores) }
+// Replicas reports the total number of replicas.
+func (r *ReplicaSet) Replicas() int { return len(r.stores) + len(r.peers) }
 
 // Quorum reports the write quorum.
 func (r *ReplicaSet) Quorum() int { return r.quorum }
 
-// Save writes to all replicas and succeeds when quorum acked.
+// Primary returns the first local store, used by the peer HTTP endpoint.
+func (r *ReplicaSet) Primary() *Store { return r.stores[0] }
+
+// Save writes to every replica and succeeds when quorum acked.
 func (r *ReplicaSet) Save(shard, epoch uint32, walOffset uint64, payload []byte) (string, error) {
 	var firstPath string
 	var firstErr error
@@ -68,6 +89,20 @@ func (r *ReplicaSet) Save(shard, epoch uint32, walOffset uint64, payload []byte)
 			firstPath = path
 		}
 	}
+	h := Header{Version: 1, Shard: shard, Epoch: epoch, WALOffset: walOffset, Count: uint32(len(payload))}
+	body := Encode(h, payload)
+	for _, p := range r.peers {
+		if err := p.save(body); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		ok++
+		if firstPath == "" {
+			firstPath = p.base + " (remote)"
+		}
+	}
 	if ok < r.quorum {
 		return "", fmt.Errorf("snapshot quorum %d/%d: %w", ok, r.quorum, firstErr)
 	}
@@ -82,18 +117,33 @@ func (r *ReplicaSet) LoadLatest(shard uint32) (Header, []byte, string, error) {
 	found := false
 	sawCorrupt := false
 	var lastErr error
-	for _, s := range r.stores {
-		h, payload, path, err := s.LoadLatest(shard)
+
+	consider := func(h Header, payload []byte, path string, err error) {
 		if err != nil {
 			if !errors.Is(err, ErrNoSnapshot) {
 				sawCorrupt = true
 				lastErr = err
 			}
-			continue
+			return
 		}
 		if !found || h.WALOffset > best.WALOffset || (h.WALOffset == best.WALOffset && h.Epoch > best.Epoch) {
 			best, bestPayload, bestPath, found = h, payload, path, true
 		}
+	}
+
+	for _, s := range r.stores {
+		h, payload, path, err := s.LoadLatest(shard)
+		consider(h, payload, path, err)
+	}
+	for _, p := range r.peers {
+		h, payload, err := p.load(shard)
+		if err != nil {
+			// An unreachable peer is "unavailable", not "corrupt": the world
+			// must still start before its peers do.
+			lastErr = err
+			continue
+		}
+		consider(h, payload, p.base+" (remote)", nil)
 	}
 	if found {
 		return best, bestPayload, bestPath, nil

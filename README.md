@@ -71,6 +71,8 @@
 | RF=3 快照 | 完成 | 3 副本 + quorum 2；本地目录模拟 |
 | WAL 截断 | 完成 | 快照后按 offset 截断，Memory/JetStream 保序 |
 | 快照原子 offset | 完成 | mutation barrier + SnapshotWithOffset |
+| 跨进程 RF=3 | 完成 | peer 复制 + token；owner 本地丢失可从 peer 恢复 |
+| 快照最高 offset | 完成 | 多写者下按 WAL offset 选最新，不按文件时间 |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |
