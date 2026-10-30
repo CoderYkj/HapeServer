@@ -945,3 +945,20 @@ TestPlayerTCPCommand/Auth/Mismatch PASS
 
 - resume 是 version-gated：版本相同不回数据，版本落后回全量状态，还不是字段级增量。
 - push 只在订阅连接上触发；bot 压测默认关闭。
+## 1h TCP protobuf soak（2026-10-30）
+
+```text
+bots=1000 total=718973 ok=718973 err=0 err_rate=0.0000 p50=555us p99=28997us
+21:41:34 → 22:41
+```
+
+- 1000 条原生 TCP 连接，protobuf v3 全链路，0.2 次/秒。
+- 进程 RSS（40 分钟采样）：world 208 MB、gateway 157 MB、bot 147 MB，未见持续增长。
+- 0 错误、0 断连。
+
+p99 约 29ms，明显高于 60s 短跑的 815µs。观测上是启动阶段 1000 个 actor spawn 的长尾（约 1.4% 请求）；1h 的 p50 仍为 555µs，没有持续退化。若要压到更低，需要把 actor spawn 预热/批量创建，或把 p99 按“启动后”重新统计。
+
+### 说明
+
+- 这次 soak 的 bot 默认 `subscribe=false`，不触发 push；push 路径由 `TestPlayerConnPushAndResume` 单测覆盖。
+- 热路径已经是 typed protobuf，没有 `data` JSON 解包。
