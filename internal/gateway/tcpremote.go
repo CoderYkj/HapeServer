@@ -5,57 +5,84 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"hapeserver/internal/link"
 	"hapeserver/internal/world"
 )
 
-// TCPRemote forwards commands over a multiplexed TCP link to one world.
+// TCPRemote forwards commands over a pool of multiplexed TCP links.
 type TCPRemote struct {
-	addr string
+	addr  string
+	slots []*tcpSlot
+	next  atomic.Uint64
+}
+
+type tcpSlot struct {
 	mu   sync.Mutex
 	conn *link.Client
 }
 
-// NewTCPRemote builds a handler for one world TCP endpoint.
-func NewTCPRemote(addr string) *TCPRemote {
-	return &TCPRemote{addr: addr}
+// NewTCPRemote builds a pool of poolSize connections to one world.
+func NewTCPRemote(addr string, poolSize int) *TCPRemote {
+	if poolSize <= 0 {
+		poolSize = 4
+	}
+	r := &TCPRemote{addr: addr, slots: make([]*tcpSlot, poolSize)}
+	for i := range r.slots {
+		r.slots[i] = &tcpSlot{}
+	}
+	return r
 }
 
-func (r *TCPRemote) client() (*link.Client, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.conn != nil {
-		return r.conn, nil
+func (r *TCPRemote) pick() *tcpSlot {
+	i := r.next.Add(1)
+	return r.slots[int(i)%len(r.slots)]
+}
+
+func (r *TCPRemote) client(s *tcpSlot) (*link.Client, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn != nil {
+		return s.conn, nil
 	}
 	c, err := link.Dial(r.addr, 2*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	r.conn = c
+	s.conn = c
 	return c, nil
 }
 
-func (r *TCPRemote) drop(c *link.Client) {
-	r.mu.Lock()
-	if r.conn == c {
-		r.conn = nil
+func (r *TCPRemote) drop(s *tcpSlot, c *link.Client) {
+	s.mu.Lock()
+	if s.conn == c {
+		s.conn = nil
 	}
-	r.mu.Unlock()
+	s.mu.Unlock()
 	_ = c.Close()
+}
+
+func (r *TCPRemote) call(ctx context.Context, payload []byte) ([]byte, error) {
+	slot := r.pick()
+	c, err := r.client(slot)
+	if err != nil {
+		return nil, err
+	}
+	data, err := c.Call(ctx, payload)
+	if err != nil {
+		r.drop(slot, c)
+		return nil, err
+	}
+	return data, nil
 }
 
 // Handle implements gateway.Handler.
 func (r *TCPRemote) Handle(ctx context.Context, req world.Request) (any, error) {
-	c, err := r.client()
-	if err != nil {
-		return nil, err
-	}
 	payload, _ := json.Marshal(req)
-	data, err := c.Call(ctx, payload)
+	data, err := r.call(ctx, payload)
 	if err != nil {
-		r.drop(c)
 		return nil, err
 	}
 	var out struct {
@@ -76,14 +103,9 @@ func (r *TCPRemote) Handle(ctx context.Context, req world.Request) (any, error) 
 func (r *TCPRemote) State(id uint64) (world.PlayerState, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c, err := r.client()
-	if err != nil {
-		return world.PlayerState{}, false
-	}
 	payload, _ := json.Marshal(world.Request{PlayerID: id, Action: "state"})
-	data, err := c.Call(ctx, payload)
+	data, err := r.call(ctx, payload)
 	if err != nil {
-		r.drop(c)
 		return world.PlayerState{}, false
 	}
 	var out struct {

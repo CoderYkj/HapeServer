@@ -99,6 +99,7 @@ func main() {
 				defer wc.close()
 				tr.ws = wc
 			}
+			peers.Store(uint64(id), tr)
 			for {
 				select {
 				case <-stop:
@@ -117,7 +118,7 @@ func main() {
 					case roll < 0.85:
 						_, err = tr.do(apiRequest{PlayerID: uint64(id), Action: "top", K: 10})
 					case id%50 == 0:
-						err = tr.trade(uint64(id), peer)
+						err = tradePeers(uint64(id), peer)
 					default:
 						_, err = tr.do(apiRequest{PlayerID: uint64(id), Action: "rank"})
 					}

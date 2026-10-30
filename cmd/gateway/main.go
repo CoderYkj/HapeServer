@@ -13,6 +13,7 @@ import (
 func main() {
 	worldURL := flag.String("world", "http://127.0.0.1:8080", "world HTTP base URL")
 	worldTCP := flag.String("world-tcp", "", "world TCP endpoint (empty = HTTP)")
+	tcpPool := flag.Int("tcp-pool", 4, "TCP connections per world")
 	addr := flag.String("addr", ":8081", "gateway listen address")
 	flag.Parse()
 
@@ -23,7 +24,7 @@ func main() {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	var handler gateway.Handler
 	if *worldTCP != "" {
-		handler = gateway.NewTCPRemote(*worldTCP)
+		handler = gateway.NewTCPRemote(*worldTCP, *tcpPool)
 	} else {
 		handler = gateway.NewRemote(*worldURL)
 	}

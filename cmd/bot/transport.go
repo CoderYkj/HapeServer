@@ -138,3 +138,36 @@ func (c *wsClient) do(req apiRequest) (json.RawMessage, error) {
 }
 
 func (c *wsClient) close() { _ = c.conn.Close() }
+
+var peers sync.Map
+
+// tradePeers runs a trade across each player's own transport, so both WS
+// sessions keep their own identity.
+func tradePeers(a, b uint64) error {
+	va, ok := peers.Load(a)
+	if !ok {
+		return nil
+	}
+	vb, ok := peers.Load(b)
+	if !ok {
+		return nil
+	}
+	ta := va.(*transport)
+	tb := vb.(*transport)
+
+	data, err := ta.do(apiRequest{PlayerID: a, Target: b, Action: "trade_create", Gold: 1, TargetGold: 0})
+	if err != nil {
+		return fmt.Errorf("create: %w", err)
+	}
+	var tr struct {
+		ID string `json:"_id"`
+	}
+	if err := json.Unmarshal(data, &tr); err != nil || tr.ID == "" {
+		return fmt.Errorf("create: bad trade id")
+	}
+	if _, err := tb.do(apiRequest{PlayerID: b, Action: "trade_accept", TradeID: tr.ID}); err != nil {
+		return err
+	}
+	_, err = ta.do(apiRequest{PlayerID: a, Action: "trade_settle", TradeID: tr.ID})
+	return err
+}
