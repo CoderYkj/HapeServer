@@ -77,6 +77,7 @@ func (s *WS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := conn.ReadJSON(&req); err != nil {
 			return
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		pid := req.PlayerID
 		if pid == 0 {
 			pid = sess.PlayerID
