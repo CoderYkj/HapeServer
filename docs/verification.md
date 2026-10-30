@@ -281,3 +281,31 @@ end  =2026-10-30T14:24:25+08:00
 - 无错误、无连接泄漏迹象；快照每 10s 一次，WAL 未截断（已知限制）。
 
 > 同机压测只用于稳定性验证，不代表容量结论。
+## 增量验证：WebSocket 网关（2026-10-30）
+
+### 实现
+
+- `internal/gateway/ws.go`：`GET /ws` 升级，JSON 请求/响应，`Authorization: dev:<world>:<player>` 绑定玩家。
+- 请求复用 `world.Request`（带 `seq`），响应 `{seq, ok, data, error}`。
+- 读写超时 60s + pong 续期；消息上限 1 MB；玩家不匹配直接返回错误。
+- `cmd/bot -ws` 使用持久 WS 连接；跨玩家交易仍走 HTTP（两个不同玩家的会话不能共用一个连接）。
+
+### 测试
+
+- `TestWSCommand`：合法 token + 请求返回 `ok`。
+- `TestWSRejectsOtherPlayer`：token 绑定 player=7，发送 player=8 返回错误。
+
+### 压测
+
+```text
+100 bot / 10s：1451 请求，0 错误，p99 351µs
+1000 bot / 30s：5001 请求，0 错误，p99 532µs
+```
+
+- 1000 条持久 WS 连接，world 与压测同机（i7-4980HQ）。
+- p50 显示 0us 仍是本机时钟分辨率问题，以 p99 为准。
+
+### 限制
+
+- 还没有服务端主动 push 与 `stateVersion` 断线补差；当前是请求-响应。
+- 网关仍在 world 进程内，未拆成独立 `cmd/gateway`；P1 再拆。

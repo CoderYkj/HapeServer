@@ -211,6 +211,7 @@ func (s *Service) State(id uint64) (PlayerState, bool) {
 
 // Request is one API action.
 type Request struct {
+	Seq        uint64 `json:"seq"`
 	PlayerID   uint64 `json:"playerId"`
 	Target     uint64 `json:"targetId"`
 	Action     string `json:"action"`

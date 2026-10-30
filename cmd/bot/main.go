@@ -14,6 +14,7 @@ import (
 )
 
 type apiRequest struct {
+	Seq        uint64 `json:"seq"`
 	PlayerID   uint64 `json:"playerId"`
 	Target     uint64 `json:"targetId"`
 	Action     string `json:"action"`
@@ -57,18 +58,19 @@ func main() {
 	n := flag.Int("n", 1000, "number of bots")
 	rate := flag.Float64("rate", 0.2, "actions per bot per second")
 	duration := flag.Duration("duration", time.Hour, "test duration")
+	useWS := flag.Bool("ws", false, "use WebSocket instead of HTTP")
 	flag.Parse()
 
 	if *n <= 0 || *rate <= 0 || *duration <= 0 {
 		panic("n, rate, duration must be positive")
 	}
 
-	transport := &http.Transport{
+	httpTransport := &http.Transport{
 		MaxIdleConns:        4000,
 		MaxIdleConnsPerHost: 4000,
 		IdleConnTimeout:     60 * time.Second,
 	}
-	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	client := &http.Client{Transport: httpTransport, Timeout: 5 * time.Second}
 	if err := waitReady(client, *base, 15*time.Second); err != nil {
 		panic(err)
 	}
@@ -87,6 +89,16 @@ func main() {
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			peer := uint64(id%*n + 1)
+			tr := &transport{hc: client, base: *base}
+			if *useWS {
+				wc, werr := dialWS(*base, uint64(id))
+				if werr != nil {
+					st.record(0, werr)
+					return
+				}
+				defer wc.close()
+				tr.ws = wc
+			}
 			for {
 				select {
 				case <-stop:
@@ -97,17 +109,17 @@ func main() {
 					roll := rng.Float64()
 					switch {
 					case roll < 0.45:
-						err = call(client, *base, apiRequest{PlayerID: uint64(id), Action: "setpower", Power: int64(rng.Intn(100000))})
+						_, err = tr.do(apiRequest{PlayerID: uint64(id), Action: "setpower", Power: int64(rng.Intn(100000))})
 					case roll < 0.60:
-						err = call(client, *base, apiRequest{PlayerID: uint64(id), Action: "grant", Gold: 10})
+						_, err = tr.do(apiRequest{PlayerID: uint64(id), Action: "grant", Gold: 10})
 					case roll < 0.75:
-						err = call(client, *base, apiRequest{PlayerID: uint64(id), Action: "rank"})
+						_, err = tr.do(apiRequest{PlayerID: uint64(id), Action: "rank"})
 					case roll < 0.85:
-						err = call(client, *base, apiRequest{PlayerID: uint64(id), Action: "top", K: 10})
+						_, err = tr.do(apiRequest{PlayerID: uint64(id), Action: "top", K: 10})
 					case id%50 == 0:
-						err = trade(client, *base, uint64(id), peer)
+						err = tr.trade(uint64(id), peer)
 					default:
-						err = call(client, *base, apiRequest{PlayerID: uint64(id), Action: "rank"})
+						_, err = tr.do(apiRequest{PlayerID: uint64(id), Action: "rank"})
 					}
 					st.record(time.Since(start), err)
 				}

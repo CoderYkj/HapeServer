@@ -43,7 +43,8 @@
 | G02 escrow | 完成 | 锁定/退款/结算幂等单测 |
 | G03 TradeService | 完成 | 创建/接受/结算/取消/对账，可从 settling/refunding 续跑 |
 | G04 失败注入 | 完成 | 创建失败、接受冲突、部分结算、过期对账 |
-| H02 世界 HTTP API | 完成 | /api/command、/api/rank；启动恢复快照 |
+| H02 世界 API | 完成 | HTTP /api/command + WebSocket /ws；dev token 鉴权 |
+| H02 WS 压测 | 完成 | 1000 WS 连接 / 30s：5001 请求、0 错误、p99 532µs |
 | H03/H04 bot | 初版完成 | 100 bot 12s：2380 请求、0 错误、p99 30ms |
 | C05 WAL 接线 | 完成 | JetStream WAL + 快照恢复；进程级 kill -9 验证通过 |
 | Mongo 交易存储 | 完成 | storage.mongoUrl 非空时用 Mongo Repo，否则内存 |
