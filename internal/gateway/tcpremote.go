@@ -5,18 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"hapeserver/internal/link"
 	"hapeserver/internal/world"
 )
 
-// TCPRemote forwards commands over a pool of multiplexed TCP links.
+// TCPRemote forwards commands over a dynamically sized pool of TCP links.
+// A player is consistently mapped to one slot so its commands keep order at
+// the gateway hop.
 type TCPRemote struct {
-	addr  string
+	addr string
+
+	mu    sync.RWMutex
 	slots []*tcpSlot
-	next  atomic.Uint64
 }
 
 type tcpSlot struct {
@@ -24,7 +26,7 @@ type tcpSlot struct {
 	conn *link.Client
 }
 
-// NewTCPRemote builds a pool of poolSize connections to one world.
+// NewTCPRemote builds a pool with the given initial size.
 func NewTCPRemote(addr string, poolSize int) *TCPRemote {
 	if poolSize <= 0 {
 		poolSize = 4
@@ -36,9 +38,45 @@ func NewTCPRemote(addr string, poolSize int) *TCPRemote {
 	return r
 }
 
-func (r *TCPRemote) pick() *tcpSlot {
-	i := r.next.Add(1)
-	return r.slots[int(i)%len(r.slots)]
+// Size reports the current pool size.
+func (r *TCPRemote) Size() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.slots)
+}
+
+// SetSize grows or shrinks the pool at runtime. Shrinking closes the removed
+// slots; in-flight calls on them fail and are retried by the caller.
+func (r *TCPRemote) SetSize(n int) {
+	if n < 1 {
+		n = 1
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for len(r.slots) < n {
+		r.slots = append(r.slots, &tcpSlot{})
+	}
+	for len(r.slots) > n {
+		last := r.slots[len(r.slots)-1]
+		last.mu.Lock()
+		if last.conn != nil {
+			_ = last.conn.Close()
+			last.conn = nil
+		}
+		last.mu.Unlock()
+		r.slots = r.slots[:len(r.slots)-1]
+	}
+}
+
+func (r *TCPRemote) pick(pid uint64) *tcpSlot {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.slots) == 0 {
+		return nil
+	}
+	// Knuth multiplicative hash; stable while the pool size is unchanged.
+	idx := int((pid * 2654435761) % uint64(len(r.slots)))
+	return r.slots[idx]
 }
 
 func (r *TCPRemote) client(s *tcpSlot) (*link.Client, error) {
@@ -64,8 +102,11 @@ func (r *TCPRemote) drop(s *tcpSlot, c *link.Client) {
 	_ = c.Close()
 }
 
-func (r *TCPRemote) call(ctx context.Context, payload []byte) ([]byte, error) {
-	slot := r.pick()
+func (r *TCPRemote) call(ctx context.Context, pid uint64, payload []byte) ([]byte, error) {
+	slot := r.pick(pid)
+	if slot == nil {
+		return nil, errors.New("tcp pool is empty")
+	}
 	c, err := r.client(slot)
 	if err != nil {
 		return nil, err
@@ -81,7 +122,7 @@ func (r *TCPRemote) call(ctx context.Context, payload []byte) ([]byte, error) {
 // Handle implements gateway.Handler.
 func (r *TCPRemote) Handle(ctx context.Context, req world.Request) (any, error) {
 	payload, _ := json.Marshal(req)
-	data, err := r.call(ctx, payload)
+	data, err := r.call(ctx, req.PlayerID, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +145,7 @@ func (r *TCPRemote) State(id uint64) (world.PlayerState, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	payload, _ := json.Marshal(world.Request{PlayerID: id, Action: "state"})
-	data, err := r.call(ctx, payload)
+	data, err := r.call(ctx, id, payload)
 	if err != nil {
 		return world.PlayerState{}, false
 	}

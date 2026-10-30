@@ -2,10 +2,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 
 	"hapeserver/internal/gateway"
 )
@@ -33,6 +35,22 @@ func main() {
 	mux.Handle("/ws", gateway.NewWS(handler))
 	mux.Handle("/api/command", proxy)
 	mux.Handle("/api/rank", proxy)
+	mux.HandleFunc("/admin/pool", func(w http.ResponseWriter, r *http.Request) {
+		remote, ok := handler.(*gateway.TCPRemote)
+		if !ok {
+			http.Error(w, "tcp pool not enabled", http.StatusBadRequest)
+			return
+		}
+		if r.Method == http.MethodPost {
+			n, err := strconv.Atoi(r.URL.Query().Get("size"))
+			if err != nil {
+				http.Error(w, "bad size", http.StatusBadRequest)
+				return
+			}
+			remote.SetSize(n)
+		}
+		_, _ = fmt.Fprintf(w, "pool=%d\n", remote.Size())
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
