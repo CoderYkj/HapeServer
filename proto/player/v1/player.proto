@@ -11,3 +11,24 @@ message Request {
   string token = 1;
   hape.world.v1.Command command = 2;
 }
+
+// Hello is the first frame on a player connection.
+message Hello {
+  string token = 1;
+  uint64 last_state_version = 2;
+  bool subscribe = 3;
+}
+
+// HelloAck returns full state only when the client is behind.
+message HelloAck {
+  bool ok = 1;
+  string error = 2;
+  uint64 state_version = 3;
+  hape.world.v1.PlayerState state = 4;
+}
+
+// Event is a server-initiated state push.
+message Event {
+  uint64 state_version = 1;
+  hape.world.v1.PlayerState state = 2;
+}

@@ -19,6 +19,10 @@ func (echoHandler) Handle(_ context.Context, req world.Request) (*worldv1.Respon
 	return &worldv1.Response{Ok: true, Result: &worldv1.Response_State{State: &worldv1.PlayerState{PlayerId: req.PlayerID}}}, nil
 }
 
+func (echoHandler) State(_ context.Context, playerID uint64) (*worldv1.PlayerState, bool) {
+	return &worldv1.PlayerState{PlayerId: playerID, Version: 1}, true
+}
+
 func startPlayerTCP(t *testing.T) *link.Server {
 	t.Helper()
 	srv, err := link.Listen("127.0.0.1:0", NewPlayerHandler(echoHandler{}))

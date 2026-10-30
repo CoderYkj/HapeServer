@@ -14,6 +14,7 @@ import (
 // Handler is the command surface behind the player TCP gateway.
 type Handler interface {
 	Handle(ctx context.Context, req world.Request) (*worldv1.Response, error)
+	State(ctx context.Context, playerID uint64) (*worldv1.PlayerState, bool)
 }
 
 // NewPlayerHandler adapts the typed world handler to the protobuf v3 player

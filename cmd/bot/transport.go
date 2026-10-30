@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -14,8 +15,9 @@ import (
 )
 
 type transport struct {
-	c     *link.Client
-	token string
+	c       *link.Client
+	token   string
+	version atomic.Uint64
 }
 
 func dialTCP(addr string, pid uint64) (*transport, error) {
@@ -23,12 +25,37 @@ func dialTCP(addr string, pid uint64) (*transport, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &transport{c: c, token: fmt.Sprintf("dev:1:%d", pid)}, nil
+	t := &transport{c: c, token: fmt.Sprintf("dev:1:%d", pid)}
+	hello := &playerv1.Hello{Token: t.token}
+	body, err := proto.Marshal(hello)
+	if err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	data, err := c.Call(ctx, body)
+	if err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	var ack playerv1.HelloAck
+	if err := proto.Unmarshal(data, &ack); err != nil || !ack.Ok {
+		_ = c.Close()
+		return nil, fmt.Errorf("hello failed: %v", ack.Error)
+	}
+	t.version.Store(ack.StateVersion)
+	c.SetPushHandler(func(payload []byte) {
+		var ev playerv1.Event
+		if proto.Unmarshal(payload, &ev) == nil {
+			t.version.Store(ev.StateVersion)
+		}
+	})
+	return t, nil
 }
 
 func (t *transport) do(req apiRequest) (*worldv1.Response, error) {
 	in := &playerv1.Request{
-		Token: t.token,
 		Command: &worldv1.Command{
 			PlayerId:   req.PlayerID,
 			TargetId:   req.Target,

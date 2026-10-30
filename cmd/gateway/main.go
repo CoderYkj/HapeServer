@@ -20,7 +20,7 @@ func main() {
 	flag.Parse()
 
 	remote := gateway.NewTCPRemote(*worldTCP, *pool)
-	srv, err := link.Listen(*addr, gateway.NewPlayerHandler(remote))
+	srv, err := link.ListenPlayer(*addr, gateway.NewPlayerConnHandler(remote))
 	if err != nil {
 		log.Fatalf("player tcp listen: %v", err)
 	}

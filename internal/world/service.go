@@ -11,6 +11,7 @@ import (
 	"hapeserver/internal/actor"
 	"hapeserver/internal/battle"
 	"hapeserver/internal/observability"
+	"hapeserver/internal/protocol/worldv1"
 	"hapeserver/internal/rank"
 	"hapeserver/internal/trade"
 	"hapeserver/internal/wal"
@@ -440,18 +441,22 @@ type Request struct {
 	BeforeID   string `json:"beforeId"`
 }
 
-// Handle dispatches one API action.
-func (s *Service) Handle(ctx context.Context, req Request) (any, error) {
+// Handle dispatches one API action and returns a typed protobuf response.
+func (s *Service) Handle(ctx context.Context, req Request) (*worldv1.Response, error) {
 	s.metrics.Commands.Add(1)
 	if !readOnlyAction(req.Action) {
 		s.mutMu.RLock()
 		defer s.mutMu.RUnlock()
 	}
 	data, err := s.handle(ctx, req)
+	resp := &worldv1.Response{Ok: err == nil}
 	if err != nil {
 		s.metrics.Errors.Add(1)
+		resp.Error = err.Error()
+	} else {
+		encodeResult(resp, req.Action, data)
 	}
-	return data, err
+	return resp, err
 }
 
 func (s *Service) handle(ctx context.Context, req Request) (any, error) {

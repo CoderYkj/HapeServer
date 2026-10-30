@@ -22,6 +22,7 @@ const (
 	frameError   = byte(3)
 	framePing    = byte(4)
 	framePong    = byte(5)
+	framePush    = byte(6)
 )
 
 // ErrClosed means the link is closed.
@@ -41,6 +42,7 @@ type Client struct {
 	pending map[uint64]chan result
 	done    chan struct{}
 	once    sync.Once
+	onPush  func([]byte)
 }
 
 type result struct {
@@ -127,10 +129,24 @@ func (c *Client) readLoop() {
 			} else {
 				ch <- result{data: payload}
 			}
+		case framePush:
+			c.mu.Lock()
+			h := c.onPush
+			c.mu.Unlock()
+			if h != nil {
+				h(payload)
+			}
 		case framePing:
 			_ = c.write(framePong, id, nil)
 		}
 	}
+}
+
+// SetPushHandler installs a callback for server-initiated push frames.
+func (c *Client) SetPushHandler(h func([]byte)) {
+	c.mu.Lock()
+	c.onPush = h
+	c.mu.Unlock()
 }
 
 // Close shuts the connection and fails pending calls.

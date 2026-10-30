@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"hapeserver/internal/battle"
 	"hapeserver/internal/config"
 	"hapeserver/internal/link"
@@ -21,14 +22,9 @@ import (
 	"hapeserver/internal/snapshot"
 	"hapeserver/internal/trade"
 	"hapeserver/internal/wal"
+
 	"hapeserver/internal/world"
 )
-
-type apiResponse struct {
-	OK    bool   `json:"ok"`
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
-}
 
 func main() {
 	cfgPath := flag.String("config", "configs/default.json", "config file")
@@ -163,14 +159,13 @@ func main() {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
-		data, err := svc.Handle(r.Context(), req)
+		resp, err := svc.Handle(r.Context(), req)
 		w.Header().Set("Content-Type", "application/json")
-		resp := apiResponse{OK: err == nil, Data: data}
 		if err != nil {
-			resp.Error = err.Error()
 			w.WriteHeader(http.StatusBadRequest)
 		}
-		_ = json.NewEncoder(w).Encode(resp)
+		b, _ := protojson.Marshal(resp)
+		_, _ = w.Write(b)
 	})
 	mux.HandleFunc("/api/rank", func(w http.ResponseWriter, r *http.Request) {
 		var pid uint64

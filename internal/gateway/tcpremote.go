@@ -150,3 +150,21 @@ func (r *TCPRemote) Handle(ctx context.Context, req world.Request) (*worldv1.Res
 	}
 	return &resp, nil
 }
+
+// State loads the player's current state for resume and push.
+func (r *TCPRemote) State(ctx context.Context, playerID uint64) (*worldv1.PlayerState, bool) {
+	cmd := &worldv1.Command{PlayerId: playerID, Action: "state"}
+	payload, err := proto.Marshal(cmd)
+	if err != nil {
+		return nil, false
+	}
+	data, err := r.call(ctx, playerID, payload)
+	if err != nil {
+		return nil, false
+	}
+	var resp worldv1.Response
+	if err := proto.Unmarshal(data, &resp); err != nil || !resp.Ok {
+		return nil, false
+	}
+	return resp.GetState(), true
+}

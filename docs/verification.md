@@ -907,3 +907,41 @@ bot <--worldv1.Response(protobuf)--- gateway <--worldv1.Response(protobuf)--- wo
 - 快照/WAL 仍是 JSON 持久化格式，这不属于请求协议。
 - HTTP 仍保留给 world 内部 `/metrics`、`/healthz`、`/api/command` 调试；玩家链路只走 TCP。
 - `ActionStats.reset` 在 Go 生成代码里是 `Reset_`（与 protobuf 的 `Reset()` 方法冲突），编码时已处理。
+## 增量验证：TCP push/resume 与 typed Service.Handle（2026-10-30）
+
+### 连接握手
+
+- 玩家连接第一帧是 `player.Hello { token, last_state_version, subscribe }`。
+- 服务端回 `HelloAck { ok, state_version, state }`：
+  - `last_state_version == current`：只回版本，不回状态（version-gated resume）；
+  - 落后/首次连接：回完整状态。
+- 之后每帧是 `player.Request { command }`；已认证会话可以省略 token。
+
+### Push
+
+- `Hello.subscribe=true` 时，变更类命令成功后服务端追加 `player.Event { state_version, state }`。
+- 读类命令（state/rank/top/trade_get/battle_get/battle_history）不触发 push。
+- bot 默认不订阅，避免压测时每条命令多一次 state 查询；单测覆盖订阅路径。
+
+### typed Handle
+
+- `world.Service.Handle` 现在返回 `*worldv1.Response`，在 service 内部完成 oneof 编码。
+- `world.NewTCPHandler` 只做 `proto.Unmarshal/Marshal`，不再按 action 转换。
+- `gateway.TCPRemote.Handle` 直接返回 typed response；player gateway 不再拼接响应。
+- HTTP `/api/command` 调试接口改用 `protojson` 输出。
+
+### 验证
+
+```text
+TestPlayerConnPushAndResume  PASS
+TestPlayerTCPCommand/Auth/Mismatch PASS
+100 bot / 10s：1451 请求，0 错误，p50 528µs，p99 43928µs
+1000 bot / 60s：11000 请求，0 错误，p50 537µs，p99 45028µs
+```
+
+短时 p99 仍在 45ms 左右，主要出现在启动阶段（1000 个 actor spawn + 首次 hello/命令），1h soak 正在跑，完成后补稳定值。
+
+### 边界
+
+- resume 是 version-gated：版本相同不回数据，版本落后回全量状态，还不是字段级增量。
+- push 只在订阅连接上触发；bot 压测默认关闭。

@@ -44,9 +44,9 @@
 | G03 TradeService | 完成 | 创建/接受/结算/取消/对账，可从 settling/refunding 续跑 |
 | G04 失败注入 | 完成 | 创建失败、接受冲突、部分结算、过期对账 |
 | H02 玩家接入 | 完成 | 原生 TCP + protobuf v3；dev token；gateway 唯一入口 |
-| TCP 玩家压测 | 完成 | 1000 TCP 连接 / 60s：11,001 请求、0 错误、p99 815µs |
+| TCP 玩家压测 | 1h soak 进行中 | 短时 p99 受启动 actor spawn 影响，待 1h 结果 |
 | 全链路 protobuf | 完成 | gateway→world Command/Response typed，无 data JSON |
-| 玩家推送/续传 | 暂未实现 | 原生 TCP 当前为请求-响应，续传由 state 查询替代 |
+| 玩家推送/续传 | 完成 | Hello/Subscribe/Event；version-gated resume |
 | 独立 gateway | 完成 | cmd/gateway 只做 TCP 接入，world 无玩家入口 |
 | 自定义 TCP link | 完成 | 帧协议/多路复用/超时；gateway→world |
 | TCP 连接池 | 完成 | -tcp-pool 默认 4，按请求轮询 |
