@@ -6,6 +6,7 @@ package trade
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // State is the lifecycle of a trade document.
@@ -30,16 +31,17 @@ type Assets struct {
 
 // Trade is the authoritative document stored in MongoDB.
 type Trade struct {
-	ID       string `json:"_id" bson:"_id"`
-	World    uint32 `json:"world" bson:"world"`
-	Season   uint32 `json:"season" bson:"season"`
-	A        uint64 `json:"a" bson:"a"`
-	B        uint64 `json:"b" bson:"b"`
-	AAssets  Assets `json:"aAssets" bson:"aAssets"`
-	BAssets  Assets `json:"bAssets" bson:"bAssets"`
-	State    State  `json:"state" bson:"state"`
-	Version  uint64 `json:"version" bson:"version"`
-	ExpireAt int64  `json:"expireAt" bson:"expireAt"`
+	ID         string    `json:"_id" bson:"_id"`
+	World      uint32    `json:"world" bson:"world"`
+	Season     uint32    `json:"season" bson:"season"`
+	A          uint64    `json:"a" bson:"a"`
+	B          uint64    `json:"b" bson:"b"`
+	AAssets    Assets    `json:"aAssets" bson:"aAssets"`
+	BAssets    Assets    `json:"bAssets" bson:"bAssets"`
+	State      State     `json:"state" bson:"state"`
+	Version    uint64    `json:"version" bson:"version"`
+	ExpireAt   int64     `json:"expireAt" bson:"expireAt"`
+	ExpireDate time.Time `json:"expireDate,omitempty" bson:"expireDate,omitempty"`
 }
 
 // ErrIllegalTransition is returned for a move not in the state machine.

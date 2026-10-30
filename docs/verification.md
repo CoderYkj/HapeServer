@@ -487,3 +487,28 @@ trade_get after restart:  state=settled version=4
 
 - 交易文档真实落到 MongoDB，进程重启后仍可读回。
 - 本次用 memory WAL，玩家状态重启后会重建；交易文档持久化是独立验证的。生产应与 JetStream WAL/快照组合使用。
+## 增量验证：Mongo 索引/TTL 与副本集事务（2026-10-30）
+
+### 索引
+
+- `state_expireAt`：`{state:1, expireAt:1}`，服务 `ListPending` 与对账查询。
+- `ttl_expireDate`：`{expireDate:1}`，`expireAfterSeconds=0`；`Repo.Create` 写入 `expireDate = expireAt + 30d`，TTL 在逻辑过期 30 天后清理。
+- 旧的单字段 `state_1` 索引在启动时尽力删除。
+- `TestMongoIndexes` 断言两个索引存在且 TTL 的 `expireAfterSeconds=0`。
+
+### 副本集
+
+- 本机 `mongod --replSet rs0 --port 27018`，测试通过 admin 命令自动 `replSetInitiate`。
+- `TestMongoReplicaSetTransaction` 在 `WithTransaction` 内双写两条文档，提交后 count=2，PASS。
+- CI 新增 `replica` job：`mongo:7 --replSet rs0`，等端口后跑同一测试。
+
+```text
+TestMongoIndexes                     PASS
+TestMongoRepoPersistsAcrossReconnect PASS
+TestMongoReplicaSetTransaction       PASS
+```
+
+### 说明
+
+- 目前业务代码没有使用跨文档事务；本测试验证的是驱动/集群具备事务能力。交易状态机仍以单文档 CAS（`version + state`）为准。
+- TTL 是冷数据清理，不替代对账；过期未结算的交易仍由 `ListPending` + 协调器处理。

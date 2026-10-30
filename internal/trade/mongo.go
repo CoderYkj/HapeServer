@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -36,12 +37,21 @@ func OpenMongo(ctx context.Context, uri, db string) (*Repo, error) {
 		return nil, fmt.Errorf("mongo ping: %w", err)
 	}
 	r := &Repo{client: client, coll: client.Database(db).Collection("trades")}
-	if _, err := r.coll.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "state", Value: 1}},
+	if _, err := r.coll.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "state", Value: 1}, {Key: "expireAt", Value: 1}},
+			Options: options.Index().SetName("state_expireAt"),
+		},
+		{
+			Keys:    bson.D{{Key: "expireDate", Value: 1}},
+			Options: options.Index().SetName("ttl_expireDate").SetExpireAfterSeconds(0),
+		},
 	}); err != nil {
 		_ = client.Disconnect(ctx)
 		return nil, fmt.Errorf("mongo index: %w", err)
 	}
+	// The old single-field state index is superseded by state_expireAt.
+	_, _ = r.coll.Indexes().DropOne(ctx, "state_1")
 	return r, nil
 }
 
@@ -50,6 +60,10 @@ func (r *Repo) Close(ctx context.Context) error { return r.client.Disconnect(ctx
 
 // Create inserts a new trade document.
 func (r *Repo) Create(ctx context.Context, t *Trade) error {
+	if t.ExpireDate.IsZero() && t.ExpireAt > 0 {
+		// Retain settled/refunded history for 30 days after logical expiry.
+		t.ExpireDate = time.UnixMilli(t.ExpireAt).Add(30 * 24 * time.Hour)
+	}
 	if _, err := r.coll.InsertOne(ctx, t); err != nil {
 		return fmt.Errorf("trade insert: %w", err)
 	}
