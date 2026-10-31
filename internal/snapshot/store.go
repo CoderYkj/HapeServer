@@ -53,7 +53,7 @@ func (s *Store) Save(shard, epoch uint32, walOffset uint64, payload []byte) (str
 	if err != nil {
 		return "", err
 	}
-	if _, err := f.Write(Encode(h, payload)); err != nil {
+	if err := EncodeTo(f, h, payload); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
 		return "", err

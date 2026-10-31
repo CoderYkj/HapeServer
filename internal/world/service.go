@@ -50,6 +50,7 @@ type Service struct {
 	powers    map[uint64]uint64
 	stateHist map[uint64][]PlayerState
 	spawning  map[uint64]chan struct{}
+	tracked   map[uint64]bool
 	seq       uint64
 
 	season  uint32
@@ -76,6 +77,7 @@ func NewService(sys actor.System, store trade.Store, log wal.Log) *Service {
 		powers:    make(map[uint64]uint64),
 		stateHist: make(map[uint64][]PlayerState),
 		spawning:  make(map[uint64]chan struct{}),
+		tracked:   make(map[uint64]bool),
 		season:    1,
 		rank:      rank.NewWorldRankActor(nil),
 		battles:   battle.NewService(nil),
@@ -406,7 +408,7 @@ func (s *Service) SnapshotWithOffset() ([]byte, uint64, error) {
 
 func readOnlyAction(action string) bool {
 	switch action {
-	case "state", "rank", "top", "battle_get", "battle_history", "trade_get", "reconcile", "state_delta":
+	case "state", "rank", "top", "battle_get", "battle_history", "trade_get", "reconcile", "state_delta", "track_history":
 		return true
 	default:
 		return false
@@ -520,7 +522,7 @@ func (s *Service) Handle(ctx context.Context, req Request) (*worldv1.Response, e
 		resp.Error = err.Error()
 	} else {
 		encodeResult(resp, req.Action, data)
-		if !readOnlyAction(req.Action) {
+		if !readOnlyAction(req.Action) && s.historyTracked(req.PlayerID) {
 			s.captureState(req.PlayerID)
 		}
 	}
@@ -561,6 +563,15 @@ func (s *Service) handle(ctx context.Context, req Request) (any, error) {
 		return s.tradeResult(nil, s.TradeCancel(ctx, req.TradeID))
 	case "trade_get":
 		return s.trade.Get(ctx, req.TradeID)
+	case "track_history":
+		s.mu.Lock()
+		if req.K != 0 {
+			s.tracked[req.PlayerID] = true
+		} else {
+			delete(s.tracked, req.PlayerID)
+		}
+		s.mu.Unlock()
+		return nil, nil
 	case "state_delta":
 		d := s.Delta(req.PlayerID, req.FromVersion)
 		if d == nil {
@@ -631,6 +642,11 @@ func cloneState(st PlayerState) PlayerState {
 	return out
 }
 
+func (s *Service) historyTracked(pid uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tracked[pid]
+}
 func cloneHistoryState(st PlayerState) PlayerState {
 	out := st
 	out.SeenOps = nil

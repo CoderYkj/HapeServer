@@ -3,9 +3,11 @@
 package snapshot
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
+	"io"
 )
 
 // Magic identifies a HapeServer snapshot.
@@ -27,17 +29,38 @@ const headerSize = 8 + 2 + 4 + 4 + 8 + 4
 
 // Encode frames header + payload + crc32c.
 func Encode(h Header, payload []byte) []byte {
-	out := make([]byte, headerSize+len(payload)+4)
-	copy(out[0:8], Magic[:])
-	binary.BigEndian.PutUint16(out[8:10], h.Version)
-	binary.BigEndian.PutUint32(out[10:14], h.Shard)
-	binary.BigEndian.PutUint32(out[14:18], h.Epoch)
-	binary.BigEndian.PutUint64(out[18:26], h.WALOffset)
-	binary.BigEndian.PutUint32(out[26:30], h.Count)
-	copy(out[headerSize:], payload)
-	sum := crc32.Checksum(out[:headerSize+len(payload)], crc32.MakeTable(crc32.Castagnoli))
-	binary.BigEndian.PutUint32(out[headerSize+len(payload):], sum)
-	return out
+	var buf bytes.Buffer
+	buf.Grow(headerSize + len(payload) + 4)
+	_ = EncodeTo(&buf, h, payload)
+	return buf.Bytes()
+}
+
+// EncodeTo writes the same frame without allocating the whole snapshot.
+func EncodeTo(w io.Writer, h Header, payload []byte) error {
+	var hdr [headerSize]byte
+	copy(hdr[0:8], Magic[:])
+	binary.BigEndian.PutUint16(hdr[8:10], h.Version)
+	binary.BigEndian.PutUint32(hdr[10:14], h.Shard)
+	binary.BigEndian.PutUint32(hdr[14:18], h.Epoch)
+	binary.BigEndian.PutUint64(hdr[18:26], h.WALOffset)
+	binary.BigEndian.PutUint32(hdr[26:30], h.Count)
+	hash := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	if _, err := hash.Write(hdr[:]); err != nil {
+		return err
+	}
+	if _, err := hash.Write(payload); err != nil {
+		return err
+	}
+	var sum [4]byte
+	binary.BigEndian.PutUint32(sum[:], hash.Sum32())
+	if _, err := w.Write(hdr[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(payload); err != nil {
+		return err
+	}
+	_, err := w.Write(sum[:])
+	return err
 }
 
 // Decode validates and splits a snapshot file.
