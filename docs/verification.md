@@ -1270,3 +1270,42 @@ RSS 增长仍在 +36MB/30m；p99 波动大（11–64ms）。说明：
 2. 历史只存字段级 delta，而不是完整 PlayerState。
 3. 快照增量化（只写 dirty players）或流式写入，避免 `Encode` 整包复制。
 4. 用 CPU profile 单独定位 p99。
+## 优化版 70 分钟 soak（2026-10-31）
+
+### 结构性优化
+
+- 历史捕获改为按订阅：`track_history` 命令；`subscribe=false` 的 bot 不再触发 `captureState`。
+- 快照落盘改用 `snapshot.EncodeTo` 流式写，去掉整包 `Encode` 复制。
+- `snapshotIntervalSeconds` 可配置（本轮 30s）。
+- SeenOps 上限 256、Settled 上限 1024。
+
+### RSS
+
+| 时间 | world |
+|---|---:|
+| 10m | 176MB |
+| 20m | 182MB |
+| 30m | 201MB |
+| 40m | 211MB |
+| 50m | 207MB |
+| 60m | 215MB |
+| end | 208MB |
+
+- 峰值 215MB，末段回落到 208MB，**已见顶**；对比修复前 70m 的 466MB。
+- 相比优化前 30m（179→204），RSS 高水位下降约 5–10MB。
+
+### 吞吐与错误
+
+```text
+total=838994 ok=838979 err=15 err_rate=0.0000
+p50=996us p99=509742us
+```
+
+- 15 个 `context deadline exceeded`（约 0.0018%）。
+- p99 509ms，明显异常：30m 优化版曾为 1.32ms。长跑后段出现一次约 40s 级别的长尾/停顿，导致 p99 被拉高；需要 CPU profile 定位。
+- 因此本轮结论：**RSS 已见顶**，但 **p99 长尾未闭环**。
+
+### 待办
+
+- 用 CPU profile（`/debug/pprof/profile?seconds=30`）在 60m 后抓一次，确认是 GC、快照 I/O 还是 host 调度。
+- 对 15 个超时单独记录触发时间点。
