@@ -51,6 +51,7 @@
 | 快照编码 | 完成 | protobuf PlayerStates，不再兼容旧 JSON |
 | 30m 修复验证 | 完成 | 359,000 请求、0 错误、p99 674µs；RSS 184MB@15m |
 | 70m TCP soak | 完成 | 839,000 请求、0 错误、p99 695µs；修复 SeenOps 内存增长 |
+| 70m 修复后 soak | 完成 | 839,000 请求、0 错误、p99 42.6ms；RSS 182→259MB |
 | 玩家推送/续传 | 完成 | Hello/Subscribe/Event；字段级 StateDelta resume |
 | 独立 gateway | 完成 | 拆到 `github.com/CoderYkj/HapeGateway`，本仓通过 replace 复用 |
 | 自定义 TCP link | 完成 | 帧协议/多路复用/超时；gateway→world |
