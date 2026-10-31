@@ -17,7 +17,9 @@ type Config struct {
 }
 
 type Runtime struct {
-	Kind string `json:"kind"` // goakt | inmem
+	Kind          string `json:"kind"` // goakt | inmem
+	GCPercent     int    `json:"gcPercent"`
+	MemoryLimitMB int    `json:"memoryLimitMB"`
 }
 
 type World struct {

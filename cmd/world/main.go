@@ -11,6 +11,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -37,6 +38,12 @@ func main() {
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
+	}
+	if cfg.Runtime.GCPercent != 0 {
+		debug.SetGCPercent(cfg.Runtime.GCPercent)
+	}
+	if cfg.Runtime.MemoryLimitMB > 0 {
+		debug.SetMemoryLimit(int64(cfg.Runtime.MemoryLimitMB) << 20)
 	}
 	sys, err := runtime.New(cfg.Runtime)
 	if err != nil {
