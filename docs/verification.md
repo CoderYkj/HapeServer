@@ -1354,3 +1354,16 @@ RSS：
 
 - P0 使用 `gcPercent=200`、`memoryLimitMB=512`。
 - 若内存更敏感，降 `memoryLimitMB` 到 384 并观察 RSS/p99。
+## HapeGateway v0.1.1 发布（2026-10-31）
+
+- `v0.1.1` 指向 `a5d6c6a`（含 `track_history` gating），通过 GitHub API 创建 tag。
+- HapeServer `go.mod` 升级：
+  ```
+  require github.com/CoderYkj/HapeGateway v0.1.1
+  require github.com/CoderYkj/HapeProto   v0.1.0
+  ```
+- 本地 `go.work` 改为 `replace ... v0.1.1 => ../HapeGateway`。
+- 由于 GitHub git 端口不稳定，v0.1.1 的 go.sum 由本地 file proxy（git archive 生成的 module zip）计算；远端 tag 内容与本地 commit 一致，CI 走 GOPROXY 时应得到相同 hash。
+- 验证：
+  - workspace：`go test ./...` PASS。
+  - `GOWORK=off` + file proxy：`go mod tidy`/`go build ./...` PASS。
