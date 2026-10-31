@@ -53,7 +53,7 @@
 | 70m TCP soak | 完成 | 839,000 请求、0 错误、p99 695µs；修复 SeenOps 内存增长 |
 | 70m 修复后 soak | 完成 | 839,000 请求、0 错误、p99 42.6ms；RSS 182→259MB |
 | pprof 定位 | 完成 | -pprof；heap diff 指向 cloneState / snapshot.Encode / SeenOps |
-| 70m 优化版 soak | 完成 | 838,994 请求；RSS 176→208MB 见顶回落；p99 509ms 待查 |
+| 70m GC 调优 soak | 完成 | 839,001 请求、0 错误；RSS 185→240MB 见顶；p99 36ms |
 | SeenOps/Settled 上限 | 完成 | 256 / 1024，历史不复制 SeenOps |
 | 玩家推送/续传 | 完成 | Hello/Subscribe/Event；字段级 StateDelta resume |
 | 独立 gateway | 完成 | 拆到 `github.com/CoderYkj/HapeGateway`，本仓通过 replace 复用 |

@@ -1309,3 +1309,48 @@ p50=996us p99=509742us
 
 - 用 CPU profile（`/debug/pprof/profile?seconds=30`）在 60m 后抓一次，确认是 GC、快照 I/O 还是 host 调度。
 - 对 15 个超时单独记录触发时间点。
+## GC 调优 70 分钟 soak（2026-10-31）
+
+### 配置
+
+```json
+"runtime": {"kind": "goakt", "gcPercent": 200, "memoryLimitMB": 512}
+```
+
+- `snapshotIntervalSeconds=30`，其他同优化版。
+- 对照实验：
+  - `GOGC=off` 10m：p99 668µs。
+  - `GOGC=200 + 512MB` 10m：p99 665µs、RSS 205MB。
+  - `GOGC=200 + 512MB` 30m：p99 660µs、RSS 204MB。
+
+### 70m 结果
+
+```text
+bots=1000 total=839001 ok=839001 err=0
+p50=600us p99=36098us
+```
+
+RSS：
+
+| 时间 | world |
+|---|---:|
+| 10m | 185MB |
+| 20m | 194MB |
+| 30m | 230MB |
+| 40m | 236MB |
+| 50m | 241MB |
+| 60m | 237MB |
+| 70m | 240MB |
+| end | 240MB |
+
+### 结论
+
+- RSS 在 40–70 分钟稳定在 236–241MB，**已见顶**；代价是比默认 GOGC 高约 30MB。
+- p99 从默认 GC 的 509ms 降到 36ms；0 错误。
+- p99 仍未回到 30m 的 0.66ms 水平，长跑后段仍有约 36ms 的长尾，说明除 GC 外还有周期性停顿（快照/宿主调度）待查。
+- `configs/default.json` 已将 `gcPercent=200`、`memoryLimitMB=512` 作为 P0 默认。
+
+### 推荐
+
+- P0 使用 `gcPercent=200`、`memoryLimitMB=512`。
+- 若内存更敏感，降 `memoryLimitMB` 到 384 并观察 RSS/p99。

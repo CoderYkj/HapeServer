@@ -1,8 +1,8 @@
 {
   "runtime": {
     "kind": "goakt",
-    "gcPercent": 0,
-    "memoryLimitMB": 0
+    "gcPercent": 200,
+    "memoryLimitMB": 512
   },
   "world": {
     "id": 1,
