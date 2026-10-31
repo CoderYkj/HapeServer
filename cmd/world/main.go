@@ -8,15 +8,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/CoderYkj/HapeGateway/link"
 	"google.golang.org/protobuf/encoding/protojson"
 	"hapeserver/internal/battle"
 	"hapeserver/internal/config"
-	"github.com/CoderYkj/HapeGateway/link"
 	"hapeserver/internal/recovery"
 	"hapeserver/internal/runtime"
 	"hapeserver/internal/snapshot"
@@ -30,6 +31,7 @@ func main() {
 	cfgPath := flag.String("config", "configs/default.json", "config file")
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	tcpAddr := flag.String("tcp", ":9000", "internal TCP listen address")
+	pprofOn := flag.Bool("pprof", false, "enable /debug/pprof on the HTTP admin listener")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgPath)
@@ -138,6 +140,13 @@ func main() {
 	log.Printf("world tcp listening on %s", tcpSrv.Addr())
 
 	mux := http.NewServeMux()
+	if *pprofOn {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -185,7 +194,11 @@ func main() {
 
 	stop := make(chan struct{})
 	if !cfg.Storage.DisableSnapshot {
-		go snapshotLoop(ctx, stop, snapSet, svc, walLog, cfg.World.ID)
+		interval := time.Duration(cfg.Storage.SnapshotIntervalSeconds) * time.Second
+		if interval <= 0 {
+			interval = 10 * time.Second
+		}
+		go snapshotLoop(ctx, stop, snapSet, svc, walLog, cfg.World.ID, interval)
 	}
 	go reconcileLoop(ctx, stop, svc)
 	go seasonLoop(ctx, stop, svc)
@@ -226,8 +239,8 @@ func saveSnapshot(set snapshot.Set, log wal.Log, shard uint32, svc *world.Servic
 	return nil
 }
 
-func snapshotLoop(ctx context.Context, stop <-chan struct{}, snapSet snapshot.Set, svc *world.Service, walLog wal.Log, shard uint32) {
-	t := time.NewTicker(10 * time.Second)
+func snapshotLoop(ctx context.Context, stop <-chan struct{}, snapSet snapshot.Set, svc *world.Service, walLog wal.Log, shard uint32, interval time.Duration) {
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {

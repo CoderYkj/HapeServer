@@ -2,6 +2,8 @@ package world
 
 import "errors"
 
+const maxSettledTrades = 1024
+
 var (
 	// ErrInsufficient means the player cannot cover the escrow.
 	ErrInsufficient = errors.New("insufficient assets")
@@ -66,6 +68,12 @@ func (p *PlayerActor) SettleEscrow(tradeID string, credit Assets) error {
 	p.State.Resources.Wood += credit.Wood
 	p.State.Resources.Food += credit.Food
 	p.State.Settled[tradeID] = true
+	if len(p.State.Settled) > maxSettledTrades {
+		for k := range p.State.Settled {
+			delete(p.State.Settled, k)
+			break
+		}
+	}
 	p.State.Version++
 	return nil
 }

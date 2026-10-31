@@ -607,21 +607,51 @@ func cloneState(st PlayerState) PlayerState {
 	out := st
 	out.Marches = append([]March(nil), st.Marches...)
 	out.Queues = append([]Queue(nil), st.Queues...)
-	out.SeenOps = append([]string(nil), st.SeenOps...)
-	out.Escrow = make(map[string]Assets, len(st.Escrow))
-	for k, v := range st.Escrow {
-		out.Escrow[k] = v
+	if len(st.SeenOps) > 0 {
+		out.SeenOps = append([]string(nil), st.SeenOps...)
+	} else {
+		out.SeenOps = nil
 	}
-	out.Settled = make(map[string]bool, len(st.Settled))
-	for k, v := range st.Settled {
-		out.Settled[k] = v
+	if len(st.Escrow) > 0 {
+		out.Escrow = make(map[string]Assets, len(st.Escrow))
+		for k, v := range st.Escrow {
+			out.Escrow[k] = v
+		}
+	} else {
+		out.Escrow = nil
+	}
+	if len(st.Settled) > 0 {
+		out.Settled = make(map[string]bool, len(st.Settled))
+		for k, v := range st.Settled {
+			out.Settled[k] = v
+		}
+	} else {
+		out.Settled = nil
 	}
 	return out
 }
 
 func cloneHistoryState(st PlayerState) PlayerState {
-	out := cloneState(st)
+	out := st
 	out.SeenOps = nil
+	out.Marches = append([]March(nil), st.Marches...)
+	out.Queues = append([]Queue(nil), st.Queues...)
+	if len(st.Escrow) > 0 {
+		out.Escrow = make(map[string]Assets, len(st.Escrow))
+		for k, v := range st.Escrow {
+			out.Escrow[k] = v
+		}
+	} else {
+		out.Escrow = nil
+	}
+	if len(st.Settled) > 0 {
+		out.Settled = make(map[string]bool, len(st.Settled))
+		for k, v := range st.Settled {
+			out.Settled[k] = v
+		}
+	} else {
+		out.Settled = nil
+	}
 	return out
 }
 

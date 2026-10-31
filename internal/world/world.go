@@ -181,7 +181,7 @@ func (r *RegionActor) Receive(_ actor.Context, env *actor.Envelope) {
 	}
 }
 
-const maxSeenOps = 1024
+const maxSeenOps = 256
 
 // ErrActiveEscrow blocks a season reset while assets are still locked.
 var ErrActiveEscrow = errors.New("active escrow")

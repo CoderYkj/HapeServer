@@ -1215,3 +1215,58 @@ p50=86us p99=42605us
 
 - world 的 77MB/小时增长仍未完全归零；建议加 `runtime/metrics`/pprof 采样，区分堆存活对象与 Go 保留内存。
 - p99 42.6ms 需要单独定位，不能只看 RSS。
+## pprof 定位（2026-10-31）
+
+### 方法
+
+- `cmd/world -pprof` 启用 `/debug/pprof/*`。
+- 30m soak 在 5m / 25m 抓 `heap?debug=0`，用 `go tool pprof -diff_base` 对比 `inuse_space` 与 `alloc_space`。
+
+### inuse_space diff（5m → 25m）
+
+```text
++5.6MB  world.(*PlayerActor).Receive
++4.1MB  world.cloneState / cloneHistoryState
++2.6MB  snapshot.Encode / proto.Marshal
++1.5MB  world.captureState
++1.0MB  world.(*PlayerActor).SettleEscrow
++1.0MB  fmt.Sprintf
+```
+
+### alloc_space diff（5m → 25m）
+
+```text
+532MB  cloneState
+369MB  snapshot.Encode
+188MB  proto.MarshalOptions.marshal
+ 96MB  PlayerActor.Receive
+ 42MB  captureState
+```
+
+### 已做修复
+
+- `SeenOps` 上限从 1024 降到 256。
+- `Settled` map 上限 1024，超出删除任意旧项。
+- `cloneHistoryState` 不再调用 `cloneState`，完全不复制 `SeenOps`。
+- 空 `Escrow`/`Settled` 不再分配空 map。
+- 快照间隔可配置 `storage.snapshotIntervalSeconds`。
+
+### 修复后 30m
+
+```text
+RSS: 179MB@5m → 195MB@25m → 215MB@end
+359,000 请求，0 错误，p99 64.5ms
+```
+
+RSS 增长仍在 +36MB/30m；p99 波动大（11–64ms）。说明：
+
+- 存活对象增长已受控（SeenOps/Settled 有上限），但**分配 churn 仍高**。
+- 主要 churn 来自每条命令的 `captureState` 全量克隆，以及每 10/30s 的 `snapshot.Encode` + proto 编码。
+- RSS 高水位不等于泄漏；要真正压平必须减少这两类分配，而不是继续加 cap。
+
+### 下一步建议
+
+1. 历史捕获改为**按订阅/按需**，无订阅者时不 capture。
+2. 历史只存字段级 delta，而不是完整 PlayerState。
+3. 快照增量化（只写 dirty players）或流式写入，避免 `Encode` 整包复制。
+4. 用 CPU profile 单独定位 p99。
