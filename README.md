@@ -1,9 +1,9 @@
 # HapeServer
 
-重度 SLG 服务端的 Go 实现仓库。当前处于 **P0：1k bot 单机闭环** 阶段。
+重度 SLG 服务端的 Go 实现仓库。当前处于 **P0 闭环 + P1 鉴权/多 world 路由** 阶段。
 
-设计文档：
-
+文档：
+- [当前实现架构](docs/architecture-current.md)
 - [架构设计 v1.2](docs/slg-server-architecture.md)
 - [P0 任务清单与验收用例](docs/p0-task-plan.md)
 
