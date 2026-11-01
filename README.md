@@ -123,7 +123,7 @@ test/             压测与模拟（占位）
 
 - 独立仓库：`https://github.com/CoderYkj/HapeGateway`（本地 `D:\HapeGateway`），module `github.com/CoderYkj/HapeGateway`。
 - 包含：`link` 帧协议、`gateway` 玩家连接/推送/池化 backend、`cmd/gateway`；protobuf 契约来自 `HapeProto`。
-- 本地开发用不提交的 `go.work` 指向 `../HapeGateway` / `../HapeProto`；CI 直接走 proxy，HapeGateway 依赖 `v0.1.1`、HapeProto 依赖 `v0.1.0`。
+- 本地开发用不提交的 `go.work` 指向 `../HapeGateway` / `../HapeProto`；CI 直接走 proxy，HapeGateway 依赖 `v0.2.0`、HapeProto 依赖 `v0.1.0`。
 - 启动：`go run github.com/CoderYkj/HapeGateway/cmd/gateway -addr :9001 -world-tcp 127.0.0.1:9000`。
 
 ## HapeProto 共享契约
@@ -136,8 +136,29 @@ test/             压测与模拟（占位）
 ## 模块消费
 
 - 本地开发：仓库根目录的 `go.work`（已 gitignore）同时 use `HapeServer`、`../HapeGateway`、`../HapeProto`。
-- CI：不提交 `go.work`，直接按 `go.mod` 的 `v0.1.1`/`v0.1.0` 从 GOPROXY 拉取两个模块。
-- 发版顺序：先 `HapeProto v0.1.0`，再 `HapeGateway v0.1.1`，最后 HapeServer 引用。
+- CI：不提交 `go.work`，直接按 `go.mod` 的 `v0.2.0`/`v0.1.0` 从 GOPROXY 拉取两个模块。
+- 发版顺序：先 `HapeProto v0.1.0`，再 `HapeGateway v0.2.0`，最后 HapeServer 引用。
+
+## P1：账号鉴权与多 world 路由
+
+- HMAC token：`v1:<world>:<player>:<expUnix>:<base64url(hmac-sha256)>`。
+- gateway 启动：
+  ```bash
+  gateway -auth-secret <secret> \
+          -world-map "1=127.0.0.1:19100,2=127.0.0.1:19102" \
+          -world-tcp 127.0.0.1:19100
+  ```
+- 签发 token：
+  ```bash
+  go run github.com/CoderYkj/HapeGateway/cmd/token \
+    -secret <secret> -world 2 -player 42 -ttl 1h
+  ```
+- bot 压测：
+  ```bash
+  bot -addr 127.0.0.1:19101 -world 2 -token-secret <secret> -n 1000 -rate 0.2
+  ```
+- 每个 world 独立 actor 状态；gateway 按 token 的 world ID 选择 TCP backend 池。
+- 完整的账号注册/登录/Mongo 账户表尚未实现，当前 HMAC token 是账号服务的签发/校验基础。
 
 ## 快速开始
 
