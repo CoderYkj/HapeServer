@@ -54,6 +54,8 @@ func main() {
 	n := flag.Int("n", 1000, "number of bots")
 	rate := flag.Float64("rate", 0.2, "actions per bot per second")
 	duration := flag.Duration("duration", time.Hour, "test duration")
+	world := flag.Uint("world", 1, "world id for dev/token auth")
+	tokenSecret := flag.String("token-secret", "", "HMAC secret; empty uses dev token")
 	flag.Parse()
 
 	if *n <= 0 || *rate <= 0 || *duration <= 0 {
@@ -73,7 +75,7 @@ func main() {
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(int64(id)))
 			time.Sleep(time.Duration(rng.Intn(5000)) * time.Millisecond)
-			tr, err := dialTCP(*addr, uint64(id))
+			tr, err := dialTCP(*addr, uint64(id), uint32(*world), *tokenSecret)
 			if err != nil {
 				st.record(0, err)
 				return
