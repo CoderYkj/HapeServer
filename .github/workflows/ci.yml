@@ -53,17 +53,17 @@ jobs:
           go-version: "1.27.2"
       - name: Start single-node replica set
         run: |
-          docker run -d --name mongo-rs -p 27018:27017 mongo:7 --replSet rs0 --bind_ip_all
+          docker run -d --name mongo-rs --network host mongo:7 --replSet rs0 --bind_ip_all
           for i in $(seq 1 30); do
-            if timeout 1 bash -c '</dev/tcp/127.0.0.1/27018' 2>/dev/null; then exit 0; fi
+            if timeout 1 bash -c '</dev/tcp/127.0.0.1/27017' 2>/dev/null; then exit 0; fi
             sleep 1
           done
           exit 1
       - name: Transaction integration
         env:
-          MONGO_REPLSET_URL: mongodb://127.0.0.1:27018/?replicaSet=rs0
-          MONGO_REPLSET_ADMIN_URL: mongodb://127.0.0.1:27018/?directConnection=true
-          MONGO_REPLSET_HOST: 127.0.0.1:27018
+          MONGO_REPLSET_URL: mongodb://127.0.0.1:27017/?replicaSet=rs0
+          MONGO_REPLSET_ADMIN_URL: mongodb://127.0.0.1:27017/?directConnection=true
+          MONGO_REPLSET_HOST: 127.0.0.1:27017
         run: go test ./internal/trade -run TestMongoReplicaSetTransaction -v -count=1
 
   wal-r3:
