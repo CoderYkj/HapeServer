@@ -4,6 +4,7 @@
 
 文档：
 - [当前实现架构](docs/architecture-current.md)
+- [未来功能拆分架构与目标](docs/architecture-future.md)
 - [架构设计 v1.2](docs/slg-server-architecture.md)
 - [P0 任务清单与验收用例](docs/p0-task-plan.md)
 
