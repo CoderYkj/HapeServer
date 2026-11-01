@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/CoderYkj/HapeGateway/gateway"
 	"github.com/CoderYkj/HapeGateway/link"
 	"github.com/CoderYkj/HapeProto/playerv1"
 	"github.com/CoderYkj/HapeProto/worldv1"
@@ -20,12 +21,16 @@ type transport struct {
 	version atomic.Uint64
 }
 
-func dialTCP(addr string, pid uint64) (*transport, error) {
+func dialTCP(addr string, pid uint64, world uint32, tokenSecret string) (*transport, error) {
 	c, err := link.Dial(addr, 2*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	t := &transport{c: c, token: fmt.Sprintf("dev:1:%d", pid)}
+	token := fmt.Sprintf("dev:%d:%d", world, pid)
+	if tokenSecret != "" {
+		token = gateway.IssueToken([]byte(tokenSecret), world, pid, time.Hour)
+	}
+	t := &transport{c: c, token: token}
 	hello := &playerv1.Hello{Token: t.token}
 	body, err := proto.Marshal(hello)
 	if err != nil {
