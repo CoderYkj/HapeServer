@@ -1367,3 +1367,34 @@ RSS：
 - 验证：
   - workspace：`go test ./...` PASS。
   - `GOWORK=off` + file proxy：`go mod tidy`/`go build ./...` PASS。
+## P1：HMAC 鉴权 + 多 world 路由（2026-11-01）
+
+### 实现
+
+- HapeGateway `v0.2.0`：
+  - `gateway.HMACAuthenticator` / `IssueToken`。
+  - `gateway.Router` / `WorldMap`，按 world ID 选择独立 TCP backend 池。
+  - `cmd/token` 签发 token。
+  - `-auth-secret`、`-world-map`、`admin/pool?world=`。
+- HapeServer bot：`-world`、`-token-secret`。
+- HapeServer 依赖升级到 `HapeGateway v0.2.0`。
+
+### 双 world 集成验证
+
+- world1 `:18100/:19100`，world2 `:18102/:19102`。
+- gateway `:19101`，`-world-map 1=...:19100,2=...:19102`，`-auth-secret mw-secret`。
+- 两组各 10 bot，分别用 world1/world2 token 连接。
+- 结果：
+  ```text
+  world1 bot: 151 请求，0 错误
+  world2 bot: 151 请求，0 错误
+  world1 player1 state: gold=1010, power=40495, version=8
+  world2 player1 state: gold=1010, power=40495, version=8
+  ```
+- 两个 world 都出现了同 playerID、同版本但独立的状态，证明路由未串 world。
+
+### 待办
+
+- 账号注册/登录 + 密码哈希 + Mongo `accounts` 表。
+- 账号到 world 的选区/迁移。
+- token 刷新与吊销。
