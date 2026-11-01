@@ -3,7 +3,7 @@ module hapeserver
 go 1.27.2
 
 require (
-	github.com/CoderYkj/HapeGateway v0.1.1
+	github.com/CoderYkj/HapeGateway v0.2.0
 	github.com/CoderYkj/HapeProto v0.1.0
 	github.com/nats-io/nats.go v1.55.0
 	github.com/tochemey/goakt/v4 v4.6.4
