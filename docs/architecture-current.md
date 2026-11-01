@@ -15,6 +15,18 @@
 
 版本：HapeGateway v0.2.0、HapeProto v0.1.0、HapeServer 依赖 Gateway v0.2.0。
 
+## 1.1 组件功能标注
+
+| 组件 | 主要功能 | 具体做什么 |
+|---|---|---|
+| 玩家客户端 | TCP 长连接、发命令、收推送 | 用 `playerv1` 完成 Hello/请求/事件；断线后带 `lastStateVersion` 重连 |
+| HapeGateway | 无状态接入层 | TCP 帧解析、请求复用、鉴权、按 worldID 选 world 连接池、Hello/断线重连、delta/push、指标、优雅退出 |
+| World 1 / World 2 | 有状态世界进程 | 每个 world 独立 actor 分片、玩家状态、资源/城建/战力、排行、交易、战斗/赛季、定时器、WAL/快照 |
+| WAL + Snapshot | 持久化与恢复 | WAL 记录命令用于重放；Snapshot 存 protobuf 状态并截断 WAL；可选 JetStream R3 / RF3 peer |
+| 可选依赖 | 按需增强 | MongoDB replica 承担交易/战斗事务；NATS JetStream 做 WAL 三副本；Snapshot peer 做 RF3 快照复制 |
+| HapeProto | 共享契约 | `playerv1` 定义玩家 TCP 消息，`worldv1` 定义 Command/Response/StateDelta；两个仓库共用一份 Schema |
+| 运维 / 压测 | 运行保障 | Prometheus 指标、pprof 性能分析、1000 bot 长稳压测、故障排查 |
+
 ## 2. 系统上下文
 
 ```mermaid
