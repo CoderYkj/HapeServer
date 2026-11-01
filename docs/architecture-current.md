@@ -1,5 +1,7 @@
 # HapeServer 当前实现架构
 
+![当前架构](architecture-current.png)
+
 > 更新时间：2026-11-01  
 > 范围：已实现并验证的 P0/P1 结构；设计稿见 [slg-server-architecture.md](slg-server-architecture.md)。
 
